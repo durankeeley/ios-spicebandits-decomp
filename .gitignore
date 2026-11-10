@@ -1,0 +1,21 @@
+# Rights-holder material: never commit the game or anything extracted from it
+*.ipa
+work/
+Payload/
+ref-images/
+
+# Python / build / tooling output
+.venv/
+__pycache__/
+*.pyc
+host/build/
+*.o
+core
+core.*
+vgcore.*
+
+# Local run output
+save/
+*.ppm
+*.log
+.DS_Store
