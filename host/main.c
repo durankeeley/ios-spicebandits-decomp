@@ -23,6 +23,8 @@ int main(int argc, char **argv) {
         if (x) snprintf(docs, sizeof docs, "%s/spicebandits-ios", x); else snprintf(docs, sizeof docs, "%s/.local/share/spicebandits-ios", hm ? hm : "."); g_docs_dir = docs; }
     { char tmp[4096]; snprintf(tmp, sizeof tmp, "mkdir -p '%s'", g_docs_dir); if (system(tmp)) {} }
     g_bundle_dir = app;
+    /* offline: the game normally downloads level maps into <docs>/downloads/maps; the bundle already ships them, so link them in */
+    { char cmd[9000]; snprintf(cmd, sizeof cmd, "mkdir -p '%s/downloads/maps' && for f in '%s'/maps/*; do [ -e '%s/downloads/maps/'\"$(basename \"$f\")\" ] || ln -s \"$f\" '%s/downloads/maps/'; done", g_docs_dir, app, g_docs_dir, g_docs_dir); if (system(cmd)) {} }
     if (chdir(app)) perror("chdir bundle");   /* iOS runs apps with cwd = bundle */
     char bin[4096]; snprintf(bin, sizeof bin, "%s/Tower", app);
     cpu_init();

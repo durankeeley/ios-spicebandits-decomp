@@ -20,6 +20,8 @@ Same architecture as `../ios-redalert`: the armv7 Mach-O runs under Unicorn insi
 | Window | uses the IPA's `iTunesArtwork` as the window icon |
 
 ## Known problems
+0. **Level loading screen never finishes (current top blocker).** Clicking the Training flyout shows the "Next stop: Tutorial!" screen and the engine loads maps/sfx, then the game loops: `TDServer sendEvent:` retries every second over an AsyncSocket with no server, posting `O5PlayerReceivedEvent_gameStarted`, while `TDPlayer failsafeCallback:` flips the player to offline each 5 s. `TDPlayer offline` is YES, `offlineRequestToModule:` is used for room requests, but events still go over the socket. Next step: stand in for the server's event/room replies (see `-[O5Server sendEvent:]`, `-[TDEventProxy handleGameStarted]`, `-[O5Player processResponse:]`).
+
 1. **World map: the first level cannot be started yet.** Findings so far (engine addresses, armv7 `Tower`):
    - `EAGLView` touches reach the engine input object (an ivar of `EAGLView`): press `sub_f8568`, release `sub_f86dc` (the ObjC release path never reaches it, so `uikit_touch` calls it explicitly). The camera/map listener at `[input+0xc]` receives both; its per-touch update `sub_90814` hit-tests the 57 map objects and finds the Tutorial marker (id 1, world 500,1450).
    - The tap lands in the "select / recentre" branch (`0x90a5c`); the marker is already the selected id, so it only retargets the camera (`sub_109f20`, `sub_1081d8`). The camera does not visibly move afterwards, so the camera animation may not be advancing.

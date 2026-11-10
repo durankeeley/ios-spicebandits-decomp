@@ -9,7 +9,9 @@ It is **not** a source decompilation. The original armv7 Mach-O runs unmodified 
 | ![menu](docs/screenshots/menu.png) | ![map](docs/screenshots/world-map.png) |
 | Main menu (nib UI, animated) | World map (engine GL + UIKit overlays) |
 | ![shop](docs/screenshots/tech-shop.png) | ![career](docs/screenshots/career.png) |
-| Tech shop (offline profile data) | Career screen |
+| Tech shop (offline profile data) | Career screen with avatar |
+| ![spice](docs/screenshots/spice-shop.png) | |
+| Spice shop (offline StoreKit catalogue) | |
 
 ## Honest status
 
@@ -20,10 +22,11 @@ It is **not** a source decompilation. The original armv7 Mach-O runs unmodified 
 | Platform layer (this repo's real code) | ~3,100 dense lines of C in `host/`; 0 unimplemented imports hit on the menu/map/shop/career path; ~15 unhandled Objective-C selectors still answered with nil |
 | Boots to main menu | works |
 | Main menu | renders, animations run (UIView animation engine); some nib leftovers hidden |
-| World map | renders; marker selection and the first level **do not start yet** |
+| World map | renders with the Training flyout and marker labels; clicking the flyout reaches the level loading screen, which then **never finishes** |
 | Tech shop | renders item trees from the offline profile; tabs and Done work |
-| Career | layout matches the original; **avatar, fitting room, medals/friends content missing** |
-| Spice shop / Upgrades yard | not working yet |
+| Career | layout and avatar match the original; fitting room and medals/friends content not checked |
+| Spice shop | shows the four items with prices (catalogue and prices are guesses; sale badges wrong) |
+| Upgrades yard | not checked |
 | In-level gameplay | not reached yet |
 | Audio | not implemented (silent) |
 | Network features | stubbed; the game runs on a bundled offline profile |

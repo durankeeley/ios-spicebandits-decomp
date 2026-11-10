@@ -13,7 +13,7 @@ static int is_data_name(const char *n) {
         "_kCFRunLoop", "_MPMusicPlayerController", "_NSFile", "_UI", "_kCF", "_MP", "_NSUser", "_GK", "_SK", "_AV", "__NSConcrete", "_NSConcrete", "_environ", "___progname", "_NSDefaultRunLoopMode", NULL};
     for (int i = 0; pre[i]; i++) if (!strncmp(n, pre[i], strlen(pre[i]))) {
         /* some UI/NS-prefixed names are functions, filter them out */
-        if (!strncmp(n, "_UIApplicationMain", 18) || !strncmp(n, "_UIGraphics", 11) || !strncmp(n, "_NSFileSystemFreeSize", 21)) return 0;
+        if (!strncmp(n, "_UIApplicationMain", 18) || !strncmp(n, "_UIGraphics", 11) || !strncmp(n, "_UIImage", 8) || !strncmp(n, "_UIRectFill", 11) || !strncmp(n, "_UIEdgeInsets", 13) || !strncmp(n, "_UIRectFrame", 12) || !strncmp(n, "_NSFileSystemFreeSize", 21)) return 0;
         return 1;
     }
     return 0;

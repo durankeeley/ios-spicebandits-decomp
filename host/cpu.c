@@ -84,9 +84,10 @@ static int mem_fault(uc_engine *u, uc_mem_type t, uint64_t addr, int size, int64
     return 0;
 }
 
-static u32 blk_ring[65536]; static int blk_pos; static int blk_on;
-static void on_block(uc_engine *u, uint64_t addr, uint32_t size, void *ud) { (void)u; (void)size; (void)ud; blk_ring[blk_pos++ & 65535] = (u32)addr; }
-void dump_blocks(int n) { fprintf(stderr, "[blocks] last %d basic blocks (oldest first):", n); for (int i = n; i > 0; i--) fprintf(stderr, " %x", blk_ring[(blk_pos - i) & 65535]); fprintf(stderr, "\n"); }
+static u32 blk_ring[1<<20]; static int blk_pos; static int blk_on;
+static void on_block(uc_engine *u, uint64_t addr, uint32_t size, void *ud) { (void)u; (void)size; (void)ud; blk_ring[blk_pos++ & 0xfffff] = (u32)addr; }
+void dump_blocks(int n) { (void)n; int i = 1; while (i < (1 << 20) && blk_ring[(blk_pos - i) & 0xfffff] >= 0x08000000 && blk_ring[(blk_pos - i) & 0xfffff] < 0x0c000100) i++;   /* skip the run through zeroed memory */
+    fprintf(stderr, "[blocks] before the run (oldest first):"); for (int k = i + 40; k >= i; k--) fprintf(stderr, " %x", blk_ring[(blk_pos - k) & 0xfffff]); fprintf(stderr, "\n"); }
 static void on_watch(uc_engine *u, uc_mem_type t, uint64_t addr, int size, int64_t val, void *ud) {
     (void)u; (void)ud; fprintf(stderr, "[watch] %s %08llx size=%d val=%08llx pc=%08x lr=%08x\n", t == UC_MEM_WRITE ? "W" : "R", (unsigned long long)addr, size, (unsigned long long)val, reg(15), reg(14));
 }
@@ -168,7 +169,7 @@ u32 call_guest(gptr fn, int nargs, const u32 *args) {
     setreg(13, sp); setreg(14, RET_TRAP);
     if (g_trace > 2) fprintf(stderr, "[call] depth=%d eng=%d fn=%08x sp=%08x args=%08x,%08x,%08x\n", depth, eng == prev ? 0 : 1, fn, sp, nargs > 0 ? args[0] : 0, nargs > 1 ? args[1] : 0, nargs > 2 ? args[2] : 0);
     uc_err e = uc_emu_start(uc, fn, RET_TRAP, 0, 0);
-    if (e) { fprintf(stderr, "[cpu] emu error: %s pc=%08x lr=%08x (call fn=%08x a0=%08x a1=%08x depth=%d)\n", uc_strerror(e), reg(15), reg(14), fn, nargs > 0 ? args[0] : 0, nargs > 1 ? args[1] : 0, depth); if (blk_on) { dump_blocks(60000); exit(1); } }
+    if (e) { fprintf(stderr, "[cpu] emu error: %s pc=%08x lr=%08x (call fn=%08x a0=%08x a1=%08x depth=%d)\n", uc_strerror(e), reg(15), reg(14), fn, nargs > 0 ? args[0] : 0, nargs > 1 ? args[1] : 0, depth); if (blk_on) { dump_blocks(0); exit(1); } }
     if (g_trace > 2) fprintf(stderr, "[call] return depth=%d r0=%08x pc=%08x\n", depth, reg(0), reg(15));
     u32 r = reg(0);
     if (eng == prev) setreg(13, sp + extra * 4);

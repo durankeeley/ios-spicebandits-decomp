@@ -82,6 +82,7 @@ static void post_notification(const char *name, gptr object, gptr userinfo) {
 }
 /* ---- deferred host actions (run from the main loop) ---- */
 typedef struct { double due; int kind; gptr a, b; } Deferred; static Deferred defers[64]; static int ndefer;
+void sk_deliver(gptr req);
 static gptr new_data(const void *p, u32 n); static const char *url_path(gptr u);
 static void host_defer(int kind, gptr a, gptr b, double delay) { if (ndefer < 64) { defers[ndefer].due = now_s() + delay; defers[ndefer].kind = kind; defers[ndefer].a = a; defers[ndefer].b = b; ndefer++; } }
 void host_run_deferred(void) {
@@ -98,6 +99,7 @@ void host_run_deferred(void) {
                 if (guest_responds(del, "connection:didReceiveData:")) { u32 a[2] = { d.a, dat }; send_guest(del, "connection:didReceiveData:", 2, a); }
                 if (guest_responds(del, "connectionDidFinishLoading:")) { u32 a[1] = { d.a }; send_guest(del, "connectionDidFinishLoading:", 1, a); } continue; } }
             if (del && guest_responds(del, "connection:didFailWithError:")) { u32 a[2] = { d.a, new_error("NSURLErrorDomain", -1009) }; send_guest(del, "connection:didFailWithError:", 2, a); } }
+        else if (d.kind == 4) sk_deliver(d.a);
         else if (d.kind == 2) { post_notification("MPMoviePlayerLoadStateDidChangeNotification", d.a, 0); post_notification("MPMediaPlaybackIsPreparedToPlayDidChangeNotification", d.a, 0); } }
     int w = 0; for (int i = 0; i < ndefer; i++) if (defers[i].kind) defers[w++] = defers[i]; ndefer = w;
 }
@@ -183,6 +185,8 @@ static int uikit_msg(const char *cls, gptr recv, const char *sel, int stret, int
                 if (!vs->view) { gptr o = new_obj(objc_class_object("UIView")); View *v = view_of(o); v_set_frame(v, 0, 0, g_scr_w, g_scr_h); vs->view = o; }
                 vs->loading = 0;
                 if (guest_responds(recv, "viewDidLoad")) send_guest(recv, "viewDidLoad", 0, NULL);
+                /* Career: the fitting-room Apply/Cancel buttons start hidden on device (shown by openFittingRoom:); the nib has them visible */
+                if (!strcmp(v_clsname(recv), "CareerViewController")) { static const char *g[] = { "avatarApplyButton", "avatarCancelButton" }; for (int k = 0; k < 2; k++) if (guest_responds(recv, g[k])) { gptr b = send_guest(recv, g[k], 0, NULL); View *bv = b ? view_of(b) : NULL; if (bv) bv->hidden = 1; } }
                 /* the interface is already landscape: tell the controller so it lays out its views accordingly (UIKit does this when the view first appears) */
                 if (guest_responds(recv, "willRotateToInterfaceOrientation:duration:")) { u32 b[3] = { 4, 0, 0 }; send_guest(recv, "willRotateToInterfaceOrientation:duration:", 3, b); }
                 if (guest_responds(recv, "didRotateFromInterfaceOrientation:")) { u32 b[1] = { 1 }; send_guest(recv, "didRotateFromInterfaceOrientation:", 1, b); }

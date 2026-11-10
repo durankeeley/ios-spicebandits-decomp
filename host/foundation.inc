@@ -34,6 +34,7 @@ static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int
     if (is_cls_named(cls, "Array") || !strcmp(cls, "NSSet") || !strcmp(cls, "NSMutableSet")) {
         gptr ac = objc_class_object(strstr(cls, "Mutable") ? "NSMutableArray" : "NSArray");
         if (is_cls) {
+            if (FS("set")) { ret(new_array()); return 1; } if (FS("setWithArray:")) { ret(arr_copy(UA(2), objc_class_object("NSMutableArray"))); return 1; }
             if (FS("array")) { (void)ac; ret(new_array()); return 1; }
             if (FS("arrayWithObject:")) { gptr a = new_array(); array_add(a, UA(2)); ret(a); return 1; }
             if (FS("arrayWithObjects:")) { gptr a = new_array(); for (int i = 2; i < 40; i++) { gptr x = arg(i); if (!x) break; array_add(a, x); } ret(a); return 1; }
@@ -139,7 +140,7 @@ static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int
         if (FS("integerValue")) { ret(atoi(me)); return 1; } if (FS("longLongValue")) { ret64((u64)atoll(me)); return 1; }
         if (FS("appendString:")) { char *t = malloc(strlen(me) + strlen(scstr(UA(2))) + 1); strcpy(t, me); strcat(t, scstr(UA(2))); set_string(recv, t); free(t); ret(0); return 1; }
         if (FS("setString:")) { set_string(recv, scstr(UA(2))); ret(0); return 1; }
-        if (FS("lastPathComponent") && getenv("RA_LPC")) { const char *q = strrchr(me, '/'); ret(new_string(q ? q + 1 : me)); return 1; }
+        if (FS("lastPathComponent") && !getenv("RA_NOLPC")) { const char *q = strrchr(me, '/'); ret(new_string(q ? q + 1 : me)); return 1; }
         if (FS("pathExtension")) { const char *q = strrchr(me, '.'); ret(new_string(q ? q + 1 : "")); return 1; }
         if (FS("stringByDeletingPathExtension")) { char *t = strdup(me); char *q = strrchr(t, '.'); if (q && !strchr(q, '/')) *q = 0; gptr r = new_string(t); free(t); ret(r); return 1; }
         if (FS("stringByAppendingPathExtension:")) { char *t = malloc(strlen(me) + strlen(scstr(UA(2))) + 2); sprintf(t, "%s.%s", me, scstr(UA(2))); gptr r = new_string(t); free(t); ret(r); return 1; }
@@ -150,14 +151,15 @@ static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int
             gptr f = UA(2); TTF_Font *tf = font_for(f ? gstr(rd32(f + 4)) : "Helvetica", f ? f_of(rd32(f + 8)) : 17); int w = 0, h = 0; if (tf) { if (FS("sizeWithFont:")) TTF_SizeUTF8(tf, me, &w, &h); else { float maxw = f_of(arg(4)); SDL_Color c = {255, 255, 255, 255}; SDL_Surface *sf = TTF_RenderUTF8_Blended_Wrapped(tf, me, c, maxw > 1 ? (int)maxw : 1); if (sf) { w = sf->w; h = sf->h; SDL_FreeSurface(sf); } } }
             ret_size((float)w, (float)h); return 1; }
         if (FS("drawInRect:withFont:") || FS("drawInRect:withFont:lineBreakMode:") || FS("drawInRect:withFont:lineBreakMode:alignment:") || FS("drawAtPoint:withFont:")) {
-            CGCtx *c = cg_of(s_cur_ui_ctx); if (!c) { ret(0); return 1; }
+            CGCtx *c = cg_of(s_cur_ui_ctx); if (getenv("RA_TXTDBG")) hle_log("[draw] '%s' ctx=%08x live=%d %dx%d bpp=%d fill=%.1f,%.1f,%.1f,%.1f alpha=%.1f ctm=%.1f,%.1f,%.1f,%.1f,%.1f,%.1f\n", me, s_cur_ui_ctx, c ? c->live : -1, c ? c->w : 0, c ? c->h : 0, c ? c->bpp : 0, c ? c->fill[0] : 0, c ? c->fill[1] : 0, c ? c->fill[2] : 0, c ? c->fill[3] : 0, c ? c->alpha : 0, c ? c->ctm.a : 0, c ? c->ctm.b : 0, c ? c->ctm.c : 0, c ? c->ctm.d : 0, c ? c->ctm.tx : 0, c ? c->ctm.ty : 0); if (!c) { ret(0); return 1; }
             float x, y, w = 0; gptr f; int align = 0;
-            if (FS("drawAtPoint:withFont:")) { x = f_of(arg(2)); y = f_of(arg(3)); f = arg(4); } else { x = f_of(arg(2)); y = f_of(arg(3)); w = f_of(arg(4)); f = arg(6); align = FS("drawInRect:withFont:lineBreakMode:alignment:") ? (int)arg(8) : 0; }
+            if (FS("drawAtPoint:withFont:")) { x = f_of(UA(2)); y = f_of(UA(3)); f = UA(4); } else { x = f_of(UA(2)); y = f_of(UA(3)); w = f_of(UA(4)); f = UA(6); align = FS("drawInRect:withFont:lineBreakMode:alignment:") ? (int)UA(8) : 0; }
             TTF_Font *tf = font_for(f ? gstr(rd32(f + 4)) : "Helvetica", f ? f_of(rd32(f + 8)) : 17); if (!tf) { ret(0); return 1; } SDL_Color col = {255, 255, 255, 255};
             SDL_Surface *sf = w > 1 ? TTF_RenderUTF8_Blended_Wrapped(tf, me, col, (int)w) : TTF_RenderUTF8_Blended(tf, me, col); if (!sf) { ret(0); return 1; } SDL_Surface *r = SDL_ConvertSurfaceFormat(sf, SDL_PIXELFORMAT_ABGR8888, 0); SDL_FreeSurface(sf); if (!r) { ret(0); return 1; }
             float ux, uy; ctm_apply(c->ctm, x, y, &ux, &uy); int dx = (int)ux, dy = (int)(c->h - uy); if (align == 1 && w > 0) dx += (int)(w - r->w) / 2; else if (align == 2 && w > 0) dx += (int)(w - r->w);
             for (int j = 0; j < r->h; j++) for (int i = 0; i < r->w; i++) { uint8_t *p = (uint8_t *)r->pixels + (size_t)j * r->pitch + i * 4; if (p[3]) cg_blend(c, dx + i, dy + j, c->fill[0], c->fill[1], c->fill[2], p[3] / 255.f * c->fill[3] * c->alpha); }
-            SDL_FreeSurface(r); ret(0); return 1; }
+            if (getenv("RA_TXTDBG")) hle_log("[draw2] x=%.1f y=%.1f w=%.1f -> surf %dx%d dx=%d dy=%d font=%p\n", x, y, w, r->w, r->h, dx, dy, (void *)tf);
+            if (stret) { wr32(arg(0), w_of((float)r->w)); wr32(arg(0) + 4, w_of((float)r->h)); } SDL_FreeSurface(r); ret(0); return 1; }
     }
     /* ================= NSDate / NSDateFormatter / NSTimeZone / NSLocale ================= */
     if (!strcmp(cls, "NSDate")) {
@@ -178,6 +180,22 @@ static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int
     if (!strcmp(cls, "NSTimeZone")) { if (is_cls) { ret(new_obj(objc_class_object("NSTimeZone"))); return 1; } if (FS("secondsFromGMT") || FS("secondsFromGMTForDate:")) { ret(0); return 1; } if (FS("name") || FS("abbreviation")) { ret(new_string("GMT")); return 1; } return 0; }
     if (!strcmp(cls, "NSLocale")) { if (is_cls) { if (FS("currentLocale") || FS("systemLocale")) { ret(new_obj(objc_class_object("NSLocale"))); return 1; } if (FS("preferredLanguages")) { gptr a = new_array(); array_add(a, new_string("en")); ret(a); return 1; } return 0; }
         if (FS("objectForKey:")) { const char *k = scstr(UA(2)); ret(new_string(strstr(k, "ountry") ? "US" : strstr(k, "anguage") ? "en" : "en_US")); return 1; } if (FS("localeIdentifier")) { ret(new_string("en_US")); return 1; } return 0; }
+    /* ================= StoreKit (offline): a fixed catalogue answers SKProductsRequest ================= */
+    if (!strcmp(cls, "SKProductsRequest")) {
+        if (FS("initWithProductIdentifiers:")) { wr32(recv + 4, UA(2)); ret(recv); return 1; }
+        if (FS("setDelegate:")) { wr32(recv + 8, UA(2)); ret(0); return 1; } if (FS("delegate")) { ret(rd32(recv + 8)); return 1; }
+        if (FS("start")) { host_defer(4, recv, 0, 0.3); ret(0); return 1; } if (FS("cancel")) { ret(0); return 1; } return 0;
+    }
+    if (!strcmp(cls, "SKProduct")) {
+        if (FS("productIdentifier")) { ret(rd32(recv + 4)); return 1; } if (FS("localizedTitle")) { ret(rd32(recv + 8)); return 1; } if (FS("localizedDescription")) { ret(rd32(recv + 8)); return 1; }
+        if (FS("price")) { ret(rd32(recv + 12)); return 1; } if (FS("priceLocale")) { ret(new_obj(objc_class_object("NSLocale"))); return 1; } return 0;
+    }
+    if (!strcmp(cls, "SKProductsResponse")) { if (FS("products")) { ret(rd32(recv + 4)); return 1; } if (FS("invalidProductIdentifiers")) { ret(new_array()); return 1; } return 0; }
+    if (!strcmp(cls, "NSNumberFormatter")) {
+        if (FS("setNumberStyle:")) { wr32(recv + 4, UA(2)); ret(0); return 1; }
+        if (FS("stringFromNumber:")) { char b[64]; double v = num_double(UA(2)); if (rd32(recv + 4) == 2) snprintf(b, sizeof b, "$%.2f", v); else snprintf(b, sizeof b, "%g", v); ret(new_string(b)); return 1; }
+        if (FS("setLocale:") || FS("setFormatterBehavior:") || FS("setMaximumFractionDigits:") || FS("setMinimumFractionDigits:")) { ret(0); return 1; } return 0;
+    }
     /* ================= NSBundle / NSFileManager ================= */
     if (!strcmp(cls, "NSBundle")) {
         if (FS("objectForInfoDictionaryKey:")) { const char *k = scstr(UA(2)); const char *v = !strcmp(k, "CFBundleVersion") || !strcmp(k, "CFBundleShortVersionString") ? "1.14" : !strcmp(k, "CFBundleIdentifier") ? "com.chillingo.spicepirates" : !strcmp(k, "CFBundleDisplayName") || !strcmp(k, "CFBundleName") ? "Spice Bandits" : NULL; ret(v ? new_string(v) : 0); return 1; }
@@ -203,7 +221,7 @@ static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int
         if (is_cls) { if (FS("URLWithString:")) { if (g_trace) hle_log("[url] %s\n", scstr(UA(2))); ret(new_url(scstr(UA(2)), 0)); return 1; } if (FS("fileURLWithPath:") || FS("fileURLWithPath:isDirectory:")) { ret(new_url(scstr(UA(2)), 1)); return 1; } return 0; }
         if (FS("initWithString:")) { wr32(recv + 8, gm_strdup(scstr(UA(2)))); wr32(recv + 12, 0); ret(recv); return 1; } if (FS("initFileURLWithPath:")) { wr32(recv + 8, gm_strdup(scstr(UA(2)))); wr32(recv + 12, 1); ret(recv); return 1; }
         if (FS("path") || FS("relativePath")) { const char *p = url_path(recv); const char *q = strstr(p, "://"); if (q) { q = strchr(q + 3, '/'); p = q ? q : ""; } ret(new_string(p)); return 1; }
-        if (FS("lastPathComponent") && getenv("RA_LPC")) { const char *u = url_path(recv); const char *b = strrchr(u, '/'); b = b ? b + 1 : u; char t[512]; snprintf(t, sizeof t, "%s", b); char *q = strchr(t, '?'); if (q) *q = 0; ret(new_string(t)); return 1; }
+        if (FS("lastPathComponent") && !getenv("RA_NOLPC")) { const char *u = url_path(recv); const char *b = strrchr(u, '/'); b = b ? b + 1 : u; char t[512]; snprintf(t, sizeof t, "%s", b); char *q = strchr(t, '?'); if (q) *q = 0; ret(new_string(t)); return 1; }
         if (FS("pathExtension")) { const char *u = url_path(recv); const char *d = strrchr(u, '.'); ret(new_string(d && !strchr(d, '/') ? d + 1 : "")); return 1; }
         if (FS("absoluteString") || FS("relativeString") || FS("description")) { ret(new_string(url_path(recv))); return 1; }
         if (FS("isFileURL")) { ret(rd32(recv + 12) & 1); return 1; } if (FS("scheme")) { const char *p = url_path(recv); const char *q = strstr(p, "://"); char *t = q ? strndup(p, q - p) : strdup("file"); gptr r = new_string(t); free(t); ret(r); return 1; }
@@ -282,4 +300,18 @@ static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int
     if (!strcmp(cls, "NSAutoreleasePool") || !strcmp(cls, "NSAssertionHandler")) { ret(!strcmp(cls, "NSAutoreleasePool") && (FS("init") || FS("alloc")) ? recv : 0); return 1; }
     if (!strcmp(cls, "NSInvocation") || !strcmp(cls, "NSMethodSignature")) { ret(0); return 1; }
     return 0;
+}
+
+/* deliver a canned product list to an SKProductsRequest's delegate (called from host_run_deferred) */
+void sk_deliver(gptr req) {
+    gptr del = rd32(req + 8), ids = rd32(req + 4); if (!del) return;
+    static const struct { const char *tag; const char *name; double price; } cat[] = { {".t1.", "Spice can", 0.99}, {".t3.", "Spice tin", 2.99}, {".t5.", "Spice box", 4.99}, {".t10.", "Spice canister", 9.99} };
+    gptr products = new_array();
+    for (u32 i = 0; ids && i < rd32(ids + 4); i++) { gptr id = array_get(ids, i); const char *ids_s = scstr(id); gptr p = new_obj(objc_class_object("SKProduct")); const char *nm = "Spice"; double pr = 0.99;
+        for (int k = 0; k < 4; k++) if (strstr(ids_s, cat[k].tag)) { nm = cat[k].name; pr = cat[k].price; }
+        wr32(p + 4, id); wr32(p + 8, new_string(nm)); wr32(p + 12, new_number_d(pr)); array_add(products, p); }
+    gptr resp = new_obj(objc_class_object("SKProductsResponse")); wr32(resp + 4, products);
+    hle_log("[sk] delivering %u products\n", rd32(products + 4));
+    if (guest_responds(del, "productsRequest:didReceiveResponse:")) { u32 a[2] = { req, resp }; send_guest(del, "productsRequest:didReceiveResponse:", 2, a); }
+    if (guest_responds(del, "requestDidFinish:")) { u32 a[1] = { req }; send_guest(del, "requestDidFinish:", 1, a); }
 }

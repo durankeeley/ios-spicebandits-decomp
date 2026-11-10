@@ -19,7 +19,7 @@ static gptr cg_new(gptr data, int w, int h, int rb, int alphainfo, int bpc) {
 /* blend one source pixel (straight RGBA 0..255 + extra alpha) into the destination bitmap */
 static void cg_blend(CGCtx *c, int x, int y, float r, float g, float b, float a) {
     if (x < 0 || y < 0 || x >= c->w || y >= c->h || a <= 0) return; uint8_t *d = (uint8_t *)H(c->data) + (size_t)y * c->rb + (size_t)x * c->bpp;
-    if (c->bpp == 1) { if (c->alphainfo == 7) { d[0] = (uint8_t)(a * 255 + d[0] * (1 - a)); } else { float lum = 0.299f * r + 0.587f * g + 0.114f * b; d[0] = (uint8_t)(lum * a + d[0] * (1 - a)); } return; }
+    if (c->bpp == 1) { if (c->alphainfo == 7) { d[0] = (uint8_t)(a * 255 + d[0] * (1 - a)); } else { float lum = 0.299f * r + 0.587f * g + 0.114f * b; d[0] = (uint8_t)(lum * 255 * a + d[0] * (1 - a)); } return; }
     int premult = (c->alphainfo == 1 || c->alphainfo == 2); int first = (c->alphainfo == 2 || c->alphainfo == 4 || c->alphainfo == 6); uint8_t *dr = d + (first ? 1 : 0), *da = first ? d : d + 3;
     float sa = a, dstA = (c->alphainfo == 5 || c->alphainfo == 6) ? 1.f : da[0] / 255.f;
     if (premult) { float sr = r * sa, sg = g * sa, sb = b * sa; dr[0] = (uint8_t)fminf(255, sr * 255 + dr[0] * (1 - sa)); dr[1] = (uint8_t)fminf(255, sg * 255 + dr[1] * (1 - sa)); dr[2] = (uint8_t)fminf(255, sb * 255 + dr[2] * (1 - sa)); da[0] = (uint8_t)fminf(255, sa * 255 + da[0] * (1 - sa)); }
@@ -62,7 +62,9 @@ static Ctm arg_ctm(int first) { Ctm m; float *f = &m.a; for (int i = 0; i < 6; i
 
 static void cg_ColorSpace(void) { ret(0xC5000001u); } static void cg_noop(void) { } static void cg_zero(void) { ret(0); } static void cg_one(void) { ret(1); }
 static void cg_BitmapContextCreate(void) { ret(cg_new(arg(0), arg(1), arg(2), arg(4), arg(6), arg(3))); }
-static void cg_ContextRelease(void) { CGCtx *c = cg_of(arg(0)); if (c) { c->live = 0; } }
+static void cg_ContextRelease(void) { CGCtx *c = cg_of(arg(0));
+    if (c && getenv("RA_CGDUMP")) { static int n; char fn[256]; snprintf(fn, sizeof fn, "%s/cg_%03d_%dx%d_bpp%d_a%d.pgm", getenv("RA_CGDUMP"), n++, c->w, c->h, c->bpp, c->alphainfo); FILE *f = fopen(fn, "wb"); if (f) { fprintf(f, "P5 %d %d 255\n", c->w, c->h); for (int y = 0; y < c->h; y++) for (int x = 0; x < c->w; x++) fputc(((uint8_t *)H(c->data))[(size_t)y * c->rb + (size_t)x * c->bpp + (c->bpp == 4 ? 3 : 0)], f); fclose(f); } }
+    if (c) { c->live = 0; } }
 static void cg_ClearRect(void) { CGCtx *c = cg_of(arg(0)); if (c) cg_clear_rect(c, AF(1), AF(2), AF(3), f_of(rd32(reg(13)))); }
 static void cg_DrawImage(void) { CGCtx *c = cg_of(arg(0)); gptr img = rd32(reg(13) + 4); if (c) cg_draw_image(c, AF(1), AF(2), AF(3), f_of(rd32(reg(13))), img_of(img), 0); }
 static void cg_FillRect(void) { CGCtx *c = cg_of(arg(0)); if (c) cg_fill_rect(c, AF(1), AF(2), AF(3), f_of(rd32(reg(13)))); }
@@ -99,6 +101,9 @@ static gptr image_from_ctx(CGCtx *c) {
 }
 static void cg_BitmapContextCreateImage(void) { ret(image_from_ctx(cg_of(arg(0)))); }
 static void ug_Begin(void) { int w = (int)AF(0), h = (int)AF(1); gptr c = cg_new(0, w < 1 ? 1 : w, h < 1 ? 1 : h, 0, 1, 8); CGCtx *cc = cg_of(c); if (cc) { cc->ctm = (Ctm){1, 0, 0, -1, 0, (float)cc->h}; } s_cur_ui_ctx = c; }   /* UIKit contexts are y-down */
+static gptr ui_ctx_stack[16]; static int ui_ctx_n;
+static void ug_Push(void) { if (ui_ctx_n < 16) ui_ctx_stack[ui_ctx_n++] = s_cur_ui_ctx; s_cur_ui_ctx = arg(0); ret(0); }
+static void ug_Pop(void) { if (ui_ctx_n > 0) s_cur_ui_ctx = ui_ctx_stack[--ui_ctx_n]; ret(0); }
 static void ug_GetCurrent(void) { ret(s_cur_ui_ctx); }
 static void ug_GetImage(void) { ret(image_from_ctx(cg_of(s_cur_ui_ctx))); }
 static void ug_End(void) { CGCtx *c = cg_of(s_cur_ui_ctx); if (c) c->live = 0; s_cur_ui_ctx = 0; }
@@ -126,6 +131,9 @@ static void t_Scale(void) { Ctm t = arg_ctm(1); float sx = f_of(rd32(reg(13) + 1
 static void t_Translate(void) { Ctm t = arg_ctm(1); float tx = f_of(rd32(reg(13) + 12)), ty = f_of(rd32(reg(13) + 16)); ret_ctm(ctm_mul(t, (Ctm){1, 0, 0, 1, tx, ty})); }
 static void t_Concat(void) { Ctm a = arg_ctm(1); Ctm b; float *f = &b.a; for (int i = 0; i < 6; i++) f[i] = f_of(rd32(reg(13) + 12 + 4 * i)); ret_ctm(ctm_mul(b, a)); }
 
+/* image -> NSData: the only caller is the avatar cache writing files, so empty data is enough */
+static gptr new_data(const void *p, u32 n);
+static void ui_ImageData(void) { ret(new_data("", 0)); }
 static const HleEntry cg_tab[] = {
     {"CGColorSpaceCreateDeviceRGB", cg_ColorSpace}, {"CGColorSpaceCreateDeviceGray", cg_ColorSpace}, {"CGColorSpaceRelease", cg_noop},
     {"CGBitmapContextCreate", cg_BitmapContextCreate}, {"CGContextRelease", cg_ContextRelease}, {"CGContextClearRect", cg_ClearRect}, {"CGContextDrawImage", cg_DrawImage}, {"CGContextFillRect", cg_FillRect},
@@ -134,9 +142,9 @@ static const HleEntry cg_tab[] = {
     {"CGContextSelectFont", cg_SelectFont}, {"CGContextShowTextAtPoint", cg_ShowTextAtPoint},
     {"CGColorCreate", cg_ColorCreate}, {"CGColorGetComponents", cg_ColorGetComponents}, {"CGColorGetNumberOfComponents", cg_ColorGetNum}, {"CGColorRelease", cg_noop},
     {"CGImageGetWidth", cgi_Width}, {"CGImageGetHeight", cgi_Height}, {"CGImageGetBitsPerComponent", cgi_Bpc}, {"CGImageGetBitsPerPixel", cgi_Bpp}, {"CGImageGetBitmapInfo", cgi_BitmapInfo}, {"CGImageGetColorSpace", cg_ColorSpace},
-    {"CGImageCreateWithImageInRect", cgi_InRect}, {"CGImageRelease", cg_noop}, {"CGBitmapContextCreateImage", cg_BitmapContextCreateImage},
+    {"CGImageCreateWithImageInRect", cgi_InRect}, {"UIImagePNGRepresentation", ui_ImageData}, {"UIImageJPEGRepresentation", ui_ImageData}, {"CGImageRelease", cg_noop}, {"CGBitmapContextCreateImage", cg_BitmapContextCreateImage},
     {"UIGraphicsBeginImageContext", ug_Begin}, {"UIGraphicsBeginImageContextWithOptions", ug_Begin}, {"UIGraphicsGetCurrentContext", ug_GetCurrent}, {"UIGraphicsGetImageFromCurrentImageContext", ug_GetImage}, {"UIGraphicsEndImageContext", ug_End},
-    {"UIGraphicsPushContext", cg_noop}, {"UIGraphicsPopContext", cg_noop},
+    {"UIGraphicsPushContext", ug_Push}, {"UIGraphicsPopContext", ug_Pop},
     {"CGRectGetHeight", r_GetHeight}, {"CGRectGetWidth", r_GetWidth}, {"CGRectGetMinX", r_GetMinX}, {"CGRectGetMinY", r_GetMinY}, {"CGRectGetMaxX", r_GetMaxX}, {"CGRectGetMidX", r_GetMidX}, {"CGRectGetMidY", r_GetMidY},
     {"CGRectInset", r_Inset}, {"CGRectOffset", r_Offset}, {"CGRectIntegral", r_Integral}, {"CGRectIsNull", r_IsNull}, {"CGRectEqualToRect", r_Equal}, {"CGRectContainsPoint", r_ContainsPoint}, {"CGRectIntersection", r_Intersection},
     {"CGRectUnion", r_Union}, {"CGRectFromString", r_FromString}, {"CGRectApplyAffineTransform", r_ApplyAffine},
