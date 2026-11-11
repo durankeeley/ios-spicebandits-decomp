@@ -231,7 +231,16 @@ static int host_msg(const char *cls, gptr recv, const char *sel, int stret, int 
     if (IS("release") || IS("dealloc") || IS("removeObserver:")) { ret(0); return 0; }
     if (IS("retainCount")) { ret(1); return 0; }
     if (IS("class")) { ret(is_cls ? recv : rd32(recv)); return 0; }
-    if (IS("isKindOfClass:") || IS("isMemberOfClass:")) { ret(1); return 0; }
+    if (IS("isKindOfClass:") || IS("isMemberOfClass:")) {
+        gptr target = A(2), c = recv_is_class(recv) ? rd32(recv) == recv ? recv : recv : rd32(recv); int ok = 0, member = IS("isMemberOfClass:");
+        if (!target) { ret(0); return 0; }
+        for (int guard = 0; c && guard < 32; guard++) {
+            if (c == target) { ok = 1; break; } if (member) break;
+            GCls *g = find_gcls(c);
+            if (g) { c = g->super; continue; }
+            if (is_fake_class(c)) { const char *pn = fake_parent(fake_name(c)); c = pn ? objc_class_object(pn) : 0; continue; }
+            break; }
+        ret(ok); return 0; }
     if (IS("respondsToSelector:")) { if (!strcmp(cls, "UIDevice") && !strcmp(gstr(A(2)), "userInterfaceIdiom")) { ret(1); return 0; } ret(guest_responds(recv, gstr(A(2))) ? 1 : 0); return 0; }
     if (IS("conformsToProtocol:")) { ret(1); return 0; }
     if (IS("hash")) { ret(recv); return 0; }
@@ -243,7 +252,7 @@ static int host_msg(const char *cls, gptr recv, const char *sel, int stret, int 
     if (IS("performSelector:") || IS("performSelector:withObject:") || IS("performSelector:withObject:withObject:")) { gptr imp = 0; Target t = lookup(recv, gstr(A(2)), 0, 0); imp = t.imp; if (imp) { setreg(1, A(2)); if (IS("performSelector:withObject:")) setreg(2, A(3)); set_next_pc(imp); return 0; } ret(0); return 0; }
     /* ---- NSString ---- */
     if (strstr(cls, "String")) {
-        if (IS("stringWithUTF8String:") || IS("stringWithCString:") || IS("stringWithCString:encoding:")) { ret(new_string(gstr(A(2)))); return 0; }
+        if (IS("stringWithUTF8String:") || IS("stringWithCString:") || IS("stringWithCString:encoding:")) { if (getenv("RA_STRLOG")) hle_log("[cstr] %.80s\n", gstr(A(2))); ret(new_string(gstr(A(2)))); return 0; }
         if (IS("stringWithFormat:") || IS("stringWithCapacity:")) {
             if (IS("stringWithCapacity:")) { ret(new_string("")); return 0; }
             char b[8192]; extern int gformat_regs(char *, size_t, gptr, int); const char *f = scstr(A(2)); gptr fg = gm_strdup(f);

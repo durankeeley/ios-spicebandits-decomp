@@ -53,6 +53,18 @@ Conventions: `game` = the engine game object created by `sub_f643c` (size 0x500,
 | `0x77f0c` / `0x77be4` | config table add / lookup by id | filled by `-[TDEventProxy updateConfigs:]` (`0x3bf54`, input = array of config dicts with `configid gametype grantsunlock needsunlock numplayers location map msgwin msglost settings`) and by `0x8df10` |
 | `0xfac04` | config struct constructor | strings assigned with `std::string::assign` |
 
+## Level config, tutorial and magic bar (root cause of the missing prompts)
+| address | name / role | notes |
+|---|---|---|
+| `0xfac04` | config struct constructor/updater | parses the `settings` JSON: `+0x30 dumbcreeps`, `+0x31 build_around_base`, `+0x32 tutorial`; **`[parsed isKindOfClass:[NSNull class]] ? nil : parsed`** - an `isKindOfClass:` that always answered YES made every settings dictionary nil, so the tutorial flag, the magic icons and other per-level settings were all off |
+| `0xcb5d8` | level loader | `if (config+0x32) { game+0x334 = new CTutorial(0x2c) via sub_b314c; world+0x2a0 = same }` where `config = game+0x2d4` (looked up by id with `0x77be4`) |
+| `0xb31c8` | CTutorial constructor/script | all in-level prompt strings ("Welcome to the camp, cadet!", "build here", ...); step number at `tutorial+8` |
+| `0xb7c98` | CTutorial update `(tut, dt, x, y, beginX, beginY, down)` | called every frame from `d2768` (`d2c64`) |
+| `0xb7d68` / `0xb7dd0` | tutorial gating helpers | ask whether the current step allows a UI action |
+| `0xc9768` | per-frame GUI/touch processing | tower bar press, tutorial; `[game+0x334]` set -> tutorial owns the bar |
+
+Tutorial drag: the ghost tower is drawn about 58 px above the finger, so drop 58 px **below** the marker centre.
+
 ## Objective-C / game services
 | selector | address | role |
 |---|---|---|

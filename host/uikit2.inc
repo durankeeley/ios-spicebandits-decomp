@@ -97,10 +97,11 @@ gptr offline_room_field(gptr room, gptr key) {
     return 0;
 }
 static void post_notification(const char *name, gptr object, gptr userinfo);
+void offline_post_configs(void);
 /* The online server delivers the per-level configs (settings, grantsunlock, msgwin, ...) in the login response and -[TDPlayer processResponse:] posts
  * TDPlayerReceivedConfigs with them; the offline profile keeps them in userData.configs but nothing posts them, so the engine never learns the level
  * settings (tutorial prompts, build-around-base, creep hp ...).  Post them once, before the first room data (the join). */
-static void offline_post_configs(void) {
+void offline_post_configs(void) {
     static int done; if (done) return;
     GCls *gc = find_gcls_name("TDSession"); if (!gc) return;
     gptr pl = send_any(gc->addr, "player", 0, NULL); gptr ud = pl ? send_any(pl, "userData", 0, NULL) : 0; if (!ud) return;

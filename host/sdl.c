@@ -110,12 +110,14 @@ static void scripted_clicks(void) {
     }
 }
 /* RA_DRAG="frame:x0:y0:x1:y1" - scripted drag over 24 frames (pan test) */
-static void scripted_drag(void) {
-    static int parsed, f, x0, y0, x1, y1, ok;
-    if (!parsed) { parsed = 1; const char *e = getenv("RA_DRAG"); if (e && sscanf(e, "%d:%d:%d:%d:%d", &f, &x0, &y0, &x1, &y1) == 5) ok = 1; }
-    if (!ok) return; int gx, gy;
-    if (frame_no == f) { to_guest(x0, y0, &gx, &gy); objc_post_touch(0, gx, gy); }
-    else if (frame_no > f && frame_no <= f + 24) { int k = frame_no - f; to_guest(x0 + (x1 - x0) * k / 24, y0 + (y1 - y0) * k / 24, &gx, &gy); objc_post_touch(1, gx, gy); if (k == 24) objc_post_touch(2, gx, gy); }
+static void scripted_drag(void) {   /* RA_DRAG="f:x0:y0:x1:y1[,f:...]" */
+    static int parsed, n, f[8], x0[8], y0[8], x1[8], y1[8];
+    if (!parsed) { parsed = 1; const char *e = getenv("RA_DRAG"); while (e && *e && n < 8) { int k; if (sscanf(e, "%d:%d:%d:%d:%d%n", &f[n], &x0[n], &y0[n], &x1[n], &y1[n], &k) < 5) break; n++; e += k; if (*e == ',') e++; } }
+    int gx, gy;
+    for (int d = 0; d < n; d++) {
+        if (frame_no == f[d]) { to_guest(x0[d], y0[d], &gx, &gy); objc_post_touch(0, gx, gy); }
+        else if (frame_no > f[d] && frame_no <= f[d] + 24) { int k = frame_no - f[d]; to_guest(x0[d] + (x1[d] - x0[d]) * k / 24, y0[d] + (y1[d] - y0[d]) * k / 24, &gx, &gy); objc_post_touch(1, gx, gy); if (k == 24) objc_post_touch(2, gx, gy); }
+    }
 }
 int sdl_pump(void) {
     scripted_clicks(); scripted_drag();

@@ -124,7 +124,7 @@ void engine_poll(void) {
     for (int i = 0; i < npend; i++) {
         if (!pend[i].fn || g_frames < pend[i].due) continue;
         if (g_engine_obj && g_frames < pend[i].due + 600) { gptr cmd = rd32(g_engine_obj + 0x14); if (cmd && rd32(cmd) != 3) continue; }
-        PendThr t = pend[i]; pend[i].fn = 0; fprintf(stderr, "[thread] starting deferred fn=%08x at frame %d\n", t.fn, g_frames); cpu_thread_start_now(t.fn, t.arg);
+        PendThr t = pend[i]; pend[i].fn = 0; { extern void offline_post_configs(void); offline_post_configs(); }   /* level configs (settings, grantsunlock) before the loader thread reads them */ fprintf(stderr, "[thread] starting deferred fn=%08x at frame %d\n", t.fn, g_frames); cpu_thread_start_now(t.fn, t.arg);
     }
 }
 static void on_break(uc_engine *u, uint64_t addr, uint32_t size, void *ud) {
@@ -140,6 +140,8 @@ static void on_break(uc_engine *u, uint64_t addr, uint32_t size, void *ud) {
     const char *dm = getenv("RA_DUMPREG");   /* e.g. "10:0x60:0x100" = dump guest words at r10+0x60..+0x100 */
     if (dm) { int r = atoi(dm); unsigned lo = 0, hi = 0x40; const char *c = strchr(dm, ':'); if (c) { lo = strtoul(c + 1, (char **)&c, 0); if (c && *c == ':') hi = strtoul(c + 1, NULL, 0); }
         gptr b = reg(r); if (b && b < ARENA_SIZE - hi) { fprintf(stderr, "   dump r%d=%08x:", r, b); for (unsigned o = lo; o < hi; o += 4) fprintf(stderr, " +%x=%x", o, rd32(b + o)); fprintf(stderr, "\n"); } }
+    const char *dp = getenv("RA_DUMPPTR");   /* "reg:off:lo:hi" = dump words of the object pointed to by [reg+off] */
+    if (dp) { int r; unsigned off, lo, hi; if (sscanf(dp, "%d:%x:%x:%x", &r, &off, &lo, &hi) == 4) { gptr q = reg(r) + off; if (q < ARENA_SIZE - 8) { gptr b = rd32(q); if (b && b < ARENA_SIZE - hi) { fprintf(stderr, "   dumpptr %08x:", b); for (unsigned o = lo; o < hi; o += 4) fprintf(stderr, " +%x=%x", o, rd32(b + o)); fprintf(stderr, "\n"); } } } }
 }
 /* capture r0 each time guest code reaches `addr` (used to find the engine's input object) */
 static struct { gptr addr; gptr *dst; } caps[8]; static int ncaps;
