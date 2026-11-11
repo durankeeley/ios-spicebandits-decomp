@@ -65,6 +65,9 @@ Conventions: `game` = the engine game object created by `sub_f643c` (size 0x500,
 
 Tutorial drag: the ghost tower is drawn about 58 px above the finger, so drop 58 px **below** the marker centre.
 
+## Touch input facts
+- The engine polls the touch state once per frame (`[game+0x344/0x348]` position, `[game+0x34c]` down flag, `[game+0x33c/0x340]` begin position) in `c9768`, `d2768` (tutorial update `b7c98`) and the pause menu (`ad24c`); a press and release inside one frame is invisible to it, so the host keeps a mouse click "down" for 4 frames.
+
 ## Objective-C / game services
 | selector | address | role |
 |---|---|---|

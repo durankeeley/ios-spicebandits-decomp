@@ -119,8 +119,9 @@ static void game_resume_poll(void) {
     if (!arena[game + 0x18] || !arena[game + 0x2f5]) return;
     g_resumed_game = game; u32 a[2] = { game, 1 }; fprintf(stderr, "[engine] resuming game %08x\n", game); call_guest(0xd4dbc | 1, 2, a); call_guest(0xd4e10 | 1, 2, a);
 }
+void cpu_thread_pump(void);
 void engine_poll(void) {
-    g_frames++; game_resume_poll();
+    g_frames++; game_resume_poll(); cpu_thread_pump();
     for (int i = 0; i < npend; i++) {
         if (!pend[i].fn || g_frames < pend[i].due) continue;
         if (g_engine_obj && g_frames < pend[i].due + 600) { gptr cmd = rd32(g_engine_obj + 0x14); if (cmd && rd32(cmd) != 3) continue; }
@@ -191,7 +192,7 @@ void cpu_init(void) {
 
 /* ---- cooperative threads: a pthread runs on its own stack until it blocks in pthread_cond_wait, then its CPU context is saved;
  * pthread_cond_signal/broadcast resumes every parked thread (they run to their next block, nested, inside the signaller) ---- */
-typedef struct { uc_context *ctx; int parked, running, alive; gptr stack; } Thr;
+typedef struct { uc_context *ctx; int parked, running, alive, sliced, started; gptr stack; uc_engine *eng; gptr fn; u32 arg; } Thr;
 static Thr thr[16]; static int nthr, cur_thr = -1, park_req;
 int cpu_in_thread(void) { return cur_thr >= 0; }
 void host_cpu_stop(void) { if (cur_thr >= 0) park_req = 1; uc_emu_stop(uc); }
@@ -201,14 +202,28 @@ void cpu_thread_start(gptr fn, u32 arg) { if (npend < 16) { pend[npend].fn = fn;
 void cpu_thread_start_now(gptr fn, u32 arg) {
     if (nthr >= 16) return; int ti = nthr++; thr[ti].alive = 1; thr[ti].stack = gm_malloc(1 << 19); thread_go(ti, fn, arg); }
 void cpu_thread_wake(void) { for (int i = 0; i < nthr; i++) if (thr[i].alive && thr[i].parked && !thr[i].running) thread_go(i, 0, 0); }
+/* A thread's first run is time-sliced on a dedicated engine so the main loop keeps drawing (loading-screen animation) while the level loads. */
+static void thread_slice(int ti, int us) {
+    Thr *t = &thr[ti]; if (!t->alive || t->parked || t->running || !t->eng || depth + 1 >= MAXDEPTH) return;
+    uc_engine *prev = uc; int was_hook = prev_in_hook; gptr saved_next = next_pc_req; int saved_thr = cur_thr;
+    uc = t->eng; depth++; prev_in_hook = 0; cur_thr = ti; t->running = 1; park_req = 0;
+    u32 start;
+    if (!t->started) { t->started = 1; setreg(0, t->arg); setreg(13, (t->stack + (1 << 19) - 64) & ~7u); setreg(14, RET_TRAP); start = t->fn; }
+    else { u32 cpsr = 0; start = reg(15); uc_reg_read(uc, UC_ARM_REG_CPSR, &cpsr); start = (start & ~1u) | ((cpsr >> 5) & 1); }
+    uc_err e = uc_emu_start(uc, start, RET_TRAP, (uint64_t)us * 1000, 0);
+    if (e) { fprintf(stderr, "[thread] emu error %s pc=%08x\n", uc_strerror(e), reg(15)); t->alive = 0; }
+    else if (park_req) { if (!t->ctx) uc_context_alloc(uc, &t->ctx); uc_context_save(uc, t->ctx); t->parked = 1; t->sliced = 0; }
+    else if ((reg(15) & ~1u) == (RET_TRAP & ~1u)) t->alive = 0;
+    park_req = 0; t->running = 0; cur_thr = saved_thr; depth--; uc = prev; prev_in_hook = was_hook; next_pc_req = saved_next; }
+void cpu_thread_pump(void) { int us = getenv("RA_NOVSYNC") ? 150000 : 14000; for (int i = 0; i < nthr; i++) if (thr[i].sliced) thread_slice(i, us); }
 static void thread_go(int ti, gptr fn, u32 arg) {
     Thr *t = &thr[ti];
+    if (fn) { t->eng = make_engine(50 + ti); t->fn = fn; t->arg = arg; t->sliced = 1; t->started = 0; thread_slice(ti, getenv("RA_NOVSYNC") ? 150000 : 14000); return; }
     if (depth + 1 >= MAXDEPTH) return;
     uc_engine *prev = uc; int d = depth; if (!engines[d + 1]) engines[d + 1] = make_engine(d + 1);
     uc_engine *eng = engines[d + 1]; int was_hook = prev_in_hook; gptr saved_next = next_pc_req; int saved_thr = cur_thr;
     uc = eng; depth++; prev_in_hook = 0; cur_thr = ti; t->running = 1; park_req = 0; u32 start;
-    if (fn) { setreg(0, arg); setreg(13, (t->stack + (1 << 19) - 64) & ~7u); setreg(14, RET_TRAP); start = fn; }
-    else { uc_context_restore(eng, t->ctx); start = reg(15); t->parked = 0; }
+    uc_context_restore(eng, t->ctx); start = reg(15); t->parked = 0;
     uc_err e = uc_emu_start(uc, start, RET_TRAP, 0, 0);
     if (e) fprintf(stderr, "[thread] emu error %s pc=%08x\n", uc_strerror(e), reg(15));
     if (park_req) { if (!t->ctx) uc_context_alloc(eng, &t->ctx); uc_context_save(eng, t->ctx); t->parked = 1; } else t->alive = 0;

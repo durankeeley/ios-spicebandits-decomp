@@ -11,6 +11,8 @@ It is **not** a source decompilation. The original armv7 Mach-O runs unmodified 
 | ![shop](docs/screenshots/tech-shop.png) | ![career](docs/screenshots/career.png) |
 | Tech shop (offline profile data) | Career screen with avatar |
 | ![spice](docs/screenshots/spice-shop.png) | ![level](docs/screenshots/level.png) |
+| ![tutorial](docs/screenshots/tutorial-build.png) | ![towers](docs/screenshots/level-towers.png) |
+| ![magic](docs/screenshots/tutorial-magic.png) | |
 | Spice shop (offline StoreKit catalogue) | |
 
 ## Honest status
@@ -22,17 +24,18 @@ It is **not** a source decompilation. The original armv7 Mach-O runs unmodified 
 | Platform layer (this repo's real code) | ~3,100 dense lines of C in `host/`; 0 unimplemented imports hit on the menu/map/shop/career path; ~15 unhandled Objective-C selectors still answered with nil |
 | Boots to main menu | works |
 | Main menu | renders, animations run (UIView animation engine); some nib leftovers hidden |
-| World map | renders with the Training flyout and marker labels; clicking the flyout **loads the Training level** |
+| World map | renders (iPad assets) with the Training flyout; the flyout icon is still missing |
 | Tech shop | renders item trees from the offline profile; tabs and Done work |
 | Career | layout and avatar match the original; progress is saved between runs (`defaults.bin`); fitting room and medals/friends not checked |
 | Spice shop | shows the four items with prices (catalogue and prices are guesses; sale badges wrong) |
 | Upgrades yard | not checked |
-| In-level gameplay | Training Station renders with its HUD; zoom / tap work. Tower building, waves, win/lose and saving the result are not verified yet |
+| In-level gameplay | **Training level plays**: tower bar and magic bar, drag-to-build, waves, creeps, upgrades, selling, disco / active-defense magic and the scripted tutorial prompts all work (verified by scripted play-through up to the mines step). Not yet verified: finishing the level, the win screen, saving xp and the unlock of the next level |
 | Audio | not implemented (silent) |
+| Pause menu | opens; `<<` works; Replay / To the map highlight but their confirmation dialog is not drawn yet |
 | Network features | stubbed; the game runs on a bundled offline profile |
 | Windows build | not started |
 
-Rough overall estimate: **about 10 % of the way to a playable game** (menus, map and level loading work; actual play, audio and saving results are unverified). This is a guess, not a measurement.
+Rough overall estimate: **about 25 % of the way to a playable game** (menus, map, Training level and tutorial play; the rest of the levels, audio, win/lose screens and saving progress are unverified). This is a guess, not a measurement.
 
 Curated map of understood functions: [`docs/KNOWN_FUNCTIONS.md`](docs/KNOWN_FUNCTIONS.md). Known blockers are tracked in [`docs/PORT_STATUS.md`](docs/PORT_STATUS.md).
 

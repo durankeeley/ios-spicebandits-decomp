@@ -14,6 +14,8 @@ static PFNGLGENFRAMEBUFFERSPROC p_genfb; static PFNGLBINDFRAMEBUFFERPROC p_bindf
 static PFNGLGENRENDERBUFFERSPROC p_genrb; static PFNGLBINDRENDERBUFFERPROC p_bindrb; static PFNGLRENDERBUFFERSTORAGEPROC p_rbstore; static PFNGLFRAMEBUFFERRENDERBUFFERPROC p_fbrb;
 static int frame_no, shot_at = -1; static const char *shot_path;
 static SDL_Window *win; static SDL_GLContext gl; static int win_w, win_h, mouse_down;
+/* a click must stay "down" for a few frames: the engine polls the touch state once per frame, so a press+release inside one frame is lost */
+static int up_pending, up_frame, up_x, up_y, down_frame;
 void objc_post_touch(int phase, int x, int y);
 
 void sdl_init(int w, int h) {
@@ -121,6 +123,7 @@ static void scripted_drag(void) {   /* RA_DRAG="f:x0:y0:x1:y1[,f:...]" */
 }
 int sdl_pump(void) {
     scripted_clicks(); scripted_drag();
+    if (up_pending && frame_no >= up_frame) { up_pending = 0; objc_post_touch(2, up_x, up_y); }
     SDL_Event e; int gx, gy;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
@@ -129,9 +132,9 @@ int sdl_pump(void) {
             if (e.key.keysym.sym == SDLK_ESCAPE && (e.key.keysym.mod & KMOD_SHIFT)) return 0;
             if (e.key.keysym.sym == SDLK_F11) SDL_SetWindowFullscreen(win, (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
             break;
-        case SDL_MOUSEBUTTONDOWN: if (e.button.button == SDL_BUTTON_LEFT) { mouse_down = 1; to_guest(e.button.x, e.button.y, &gx, &gy); objc_post_touch(0, gx, gy); } break;
-        case SDL_MOUSEMOTION: if (mouse_down) { to_guest(e.motion.x, e.motion.y, &gx, &gy); objc_post_touch(1, gx, gy); } break;
-        case SDL_MOUSEBUTTONUP: if (e.button.button == SDL_BUTTON_LEFT && mouse_down) { mouse_down = 0; to_guest(e.button.x, e.button.y, &gx, &gy); objc_post_touch(2, gx, gy); } break;
+        case SDL_MOUSEBUTTONDOWN: if (e.button.button == SDL_BUTTON_LEFT) { if (up_pending) { up_pending = 0; objc_post_touch(2, up_x, up_y); } down_frame = frame_no; mouse_down = 1; to_guest(e.button.x, e.button.y, &gx, &gy); objc_post_touch(0, gx, gy); } break;
+        case SDL_MOUSEMOTION: if (mouse_down && !up_pending) { to_guest(e.motion.x, e.motion.y, &gx, &gy); objc_post_touch(1, gx, gy); } break;
+        case SDL_MOUSEBUTTONUP: if (e.button.button == SDL_BUTTON_LEFT && mouse_down) { mouse_down = 0; to_guest(e.button.x, e.button.y, &gx, &gy); up_pending = 1; up_x = gx; up_y = gy; up_frame = down_frame + 4; } break;
         }
     }
     return 1;
