@@ -124,7 +124,7 @@ static void offline_restore_progress(gptr ud) {
     gptr saved = defs_get_obj("AnonymousUserData"); if (!saved || rd32(saved + 4) == 0) return; int n = 0;
     for (u32 i = 0; i < rd32(saved + 4); i++) { gptr k = rd32(rd32(saved + 8) + 4 * i), v = rd32(rd32(saved + 12) + 4 * i); if (!k || !v || !is_string(k)) continue; const char *ks = scstr(k);
         if (!strcmp(ks, "xppoints") || !strcmp(ks, "levelpoints") || !strcmp(ks, "tonextlevel") || !strcmp(ks, "level") || !strcmp(ks, "specpoints") || !strcmp(ks, "spice") ||
-            !strcmp(ks, "rank") || !strcmp(ks, "rank_short") || !strncmp(ks, "up_", 3)) { dict_put(ud, k, v); n++; } }
+            !strcmp(ks, "rank") || !strcmp(ks, "rank_short") || !strcmp(ks, "unlocks") || !strncmp(ks, "up_", 3)) { dict_put(ud, k, v); n++; } }
     hle_log("[profile] restored %d saved progress fields\n", n);
 }
 void offline_post_configs(void) {
