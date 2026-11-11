@@ -210,8 +210,14 @@ static void draw_text(Mat m, const char *text, const char *font, float size, con
     float dx = x; if (align == 1) dx = x + (w - tw) / 2; else if (align == 2) dx = x + w - tw; float dy = y + (h - th) / 2; if (lines != 1 && th > h) dy = y;
     glBindTexture(GL_TEXTURE_2D, t); glEnable(GL_TEXTURE_2D); glColor4f(1, 1, 1, col[3] * alpha); quad(m, dx, dy, dx + tw, dy + th, 0, 0, 1, 1);
 }
+static int has_levelup_note(View *v, int depth) {
+    if (v->text && !strncmp(v->text, "You will level up", 17)) return 1;
+    if (depth > 0) for (int i = 0; i < v->nk; i++) if (has_levelup_note(v->kids[i], depth - 1)) return 1;
+    return 0; }
 static void draw_view(View *v, Mat parent, float alpha) {
     if (v->hidden || v->alpha < 0.01f) return;
+    /* offline "You will level up when you get online!" bubble (nib placeholder box + stretched label): hide the small container holding it */
+    if (v->nk <= 4 && has_levelup_note(v, 2)) return;
     /* developer leftovers authored visible in the nibs (hidden on device by code we do not reproduce): system rounded-rect debug buttons, download-progress placeholders */
     if (v->kind == K_BUTTON && v->obj && !strcmp(v_clsname(v->obj), "UIRoundedRectButton")) return;
     if (v->text && !strncmp(v->text, "progress:", 9)) return;

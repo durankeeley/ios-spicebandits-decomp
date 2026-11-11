@@ -73,6 +73,8 @@ static void defs_load(void) {
     const char *p = d; while (p < d + n && g_ndefs < 512) { gptr k = defs_parse(&p); gptr v = defs_parse(&p); if (!is_string(k)) break; snprintf(g_defs[g_ndefs].key, sizeof g_defs[0].key, "%s", scstr(k)); g_defs[g_ndefs++].val = v; }
     free(d); hle_log("[defaults] loaded %d keys from %s\n", g_ndefs, path);
 }
+static DefEnt *defs_find(const char *k);
+gptr defs_get_obj(const char *k) { DefEnt *e = defs_find(k); return e ? e->val : 0; }
 static DefEnt *defs_find(const char *k) { defs_load(); for (int i = 0; i < g_ndefs; i++) if (!strcmp(g_defs[i].key, k)) return &g_defs[i]; return NULL; }
 static void defs_set(const char *k, gptr v) {
     defs_load(); DefEnt *e = defs_find(k); if (!v) { if (e) { e->val = 0; defs_save(); } return; }

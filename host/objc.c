@@ -129,6 +129,7 @@ static void do_send(gptr recv, const char *sel, int stret, gptr start_cls, int u
     if (t.imp) {
         static int no_tut = -1; if (no_tut < 0) no_tut = getenv("RA_NO_TUTORIAL") != NULL;   /* test aid: skip the first-run tutorial overlays */
         if (no_tut && !strncmp(sel, "showTutorial:", 13)) { ret(0); return; }
+        if (!strcmp(sel, "updateUserInfo:")) { extern void offline_levelup_check(void); offline_levelup_check(); }
         /* always start on the main menu: dissolveSplash jumps straight to the map while the welcome tutorial is pending */
         if (!strcmp(sel, "canShowTutorial:") && arg(2) == 2 && reg(14) >= 0x1d430 && reg(14) < 0x1d760) { ret(0); return; }
         /* no publisher / studio splash: go straight to the game */

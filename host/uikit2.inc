@@ -98,15 +98,41 @@ gptr offline_room_field(gptr room, gptr key) {
 }
 static void post_notification(const char *name, gptr object, gptr userinfo);
 void offline_post_configs(void);
+/* The server levels the player up ("You will level up when you get online!" otherwise): apply it to the offline profile - level+1, one
+ * upgrade point, next threshold 10 xp higher per level (level 1 needs 10) - before the map's player bar is refreshed. */
+static double num_double(gptr o); static gptr new_number_d(double d);
+void offline_levelup_check(void) {
+    GCls *gc = find_gcls_name("TDSession"); if (!gc) return;
+    gptr pl = send_any(gc->addr, "player", 0, NULL); gptr ud = pl ? send_any(pl, "userData", 0, NULL) : 0; if (!ud) return;
+    #define UDF(k) ({ gptr _v = dict_lookup(ud, new_string(k)); _v ? (is_string(_v) ? atof(scstr(_v)) : num_double(_v)) : 0.0; })
+    /* tonextlevel = xp still missing for the next level (negative once the threshold is passed); levelpoints = xp at the start of this level */
+    double xp = UDF("xppoints"), lp = UDF("levelpoints"), tn = UDF("tonextlevel"); int lv = (int)UDF("level"), sp = (int)UDF("specpoints"), n = 0;
+    if (tn > 0) return;
+    while (tn <= 0 && n < 50) { lp = xp + tn; lv++; sp++; tn += 10 * lv; n++; }   /* level L needs 10*L xp */
+    if (!n) return;
+    dict_put(ud, new_string("levelpoints"), new_number_d(lp)); { char b[16]; snprintf(b, sizeof b, "%d", lv); dict_put(ud, new_string("level"), new_string(b)); snprintf(b, sizeof b, "%d", sp); dict_put(ud, new_string("specpoints"), new_string(b)); }
+    dict_put(ud, new_string("tonextlevel"), new_number_d(tn));
+    hle_log("[levelup] now level %d (xp %.1f, %.1f to go)\n", lv, xp, tn);
+}
 /* The online server delivers the per-level configs (settings, grantsunlock, msgwin, ...) in the login response and -[TDPlayer processResponse:] posts
  * TDPlayerReceivedConfigs with them; the offline profile keeps them in userData.configs but nothing posts them, so the engine never learns the level
  * settings (tutorial prompts, build-around-base, creep hp ...).  Post them once, before the first room data (the join). */
+/* Offline the game rebuilds the player from the bundled starter profile on every launch and only merges "unlocks" back from the saved
+ * AnonymousUserData; restore the earned progress (xp, level, spice, upgrade points and purchased upgrades) from that saved copy. */
+gptr defs_get_obj(const char *k);
+static void offline_restore_progress(gptr ud) {
+    gptr saved = defs_get_obj("AnonymousUserData"); if (!saved || rd32(saved + 4) == 0) return; int n = 0;
+    for (u32 i = 0; i < rd32(saved + 4); i++) { gptr k = rd32(rd32(saved + 8) + 4 * i), v = rd32(rd32(saved + 12) + 4 * i); if (!k || !v || !is_string(k)) continue; const char *ks = scstr(k);
+        if (!strcmp(ks, "xppoints") || !strcmp(ks, "levelpoints") || !strcmp(ks, "tonextlevel") || !strcmp(ks, "level") || !strcmp(ks, "specpoints") || !strcmp(ks, "spice") ||
+            !strcmp(ks, "rank") || !strcmp(ks, "rank_short") || !strncmp(ks, "up_", 3)) { dict_put(ud, k, v); n++; } }
+    hle_log("[profile] restored %d saved progress fields\n", n);
+}
 void offline_post_configs(void) {
     static int done; if (done) return;
     GCls *gc = find_gcls_name("TDSession"); if (!gc) return;
     gptr pl = send_any(gc->addr, "player", 0, NULL); gptr ud = pl ? send_any(pl, "userData", 0, NULL) : 0; if (!ud) return;
     gptr cfgs = dict_lookup(ud, new_string("configs")); if (!cfgs || rd32(cfgs + 4) == 0) return;
-    done = 1; post_notification("TDPlayerReceivedConfigs", 0, cfgs);
+    done = 1; offline_restore_progress(ud); post_notification("TDPlayerReceivedConfigs", 0, cfgs);
 }
 static void post_notification(const char *name, gptr object, gptr userinfo) {
     gptr n = 0; hle_log("[notif] post %s\n", name);
