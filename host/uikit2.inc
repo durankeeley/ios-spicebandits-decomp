@@ -236,7 +236,8 @@ static int uikit_msg(const char *cls, gptr recv, const char *sel, int stret, int
         return 0;
     }
     if (!strcmp(cls, "UIDevice")) {
-        if (UIS("orientation")) { ret(g_orient); return 1; } if (UIS("beginGeneratingDeviceOrientationNotifications") || UIS("endGeneratingDeviceOrientationNotifications")) { ret(0); return 1; }
+        if (UIS("orientation")) { ret(g_orient); return 1; } if (UIS("userInterfaceIdiom")) { ret(1); return 1; }   /* UIUserInterfaceIdiomPad */
+        if (UIS("beginGeneratingDeviceOrientationNotifications") || UIS("endGeneratingDeviceOrientationNotifications")) { ret(0); return 1; }
         if (UIS("platform")) { ret(new_string("iPad2,1")); return 1; } if (UIS("isMultitaskingSupported")) { ret(1); return 1; } if (UIS("batteryState")) { ret(0); return 1; }
         return 0;
     }

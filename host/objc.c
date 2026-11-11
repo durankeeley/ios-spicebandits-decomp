@@ -129,6 +129,10 @@ static void do_send(gptr recv, const char *sel, int stret, gptr start_cls, int u
     if (t.imp) {
         static int no_tut = -1; if (no_tut < 0) no_tut = getenv("RA_NO_TUTORIAL") != NULL;   /* test aid: skip the first-run tutorial overlays */
         if (no_tut && !strncmp(sel, "showTutorial:", 13)) { ret(0); return; }
+        /* always start on the main menu: dissolveSplash jumps straight to the map while the welcome tutorial is pending */
+        if (!strcmp(sel, "canShowTutorial:") && arg(2) == 2 && reg(14) >= 0x1d430 && reg(14) < 0x1d760) { ret(0); return; }
+        /* no publisher / studio splash: go straight to the game */
+        if (!strcmp(sel, "startIntroSequence")) { GCls *g = find_gcls(rd32(recv)); if (g && !strcmp(g->name, "IntroSequenceView")) { Target t2 = lookup(recv, "finishedIntroSequence", 0, 0); if (t2.imp) { set_next_pc(t2.imp); return; } } }
         set_next_pc(t.imp); return; }
     if (!strcmp(t.fake, "__stub__")) { ret(0); return; }
     int handled = 0;
@@ -228,7 +232,7 @@ static int host_msg(const char *cls, gptr recv, const char *sel, int stret, int 
     if (IS("retainCount")) { ret(1); return 0; }
     if (IS("class")) { ret(is_cls ? recv : rd32(recv)); return 0; }
     if (IS("isKindOfClass:") || IS("isMemberOfClass:")) { ret(1); return 0; }
-    if (IS("respondsToSelector:")) { ret(guest_responds(recv, gstr(A(2))) ? 1 : 0); return 0; }
+    if (IS("respondsToSelector:")) { if (!strcmp(cls, "UIDevice") && !strcmp(gstr(A(2)), "userInterfaceIdiom")) { ret(1); return 0; } ret(guest_responds(recv, gstr(A(2))) ? 1 : 0); return 0; }
     if (IS("conformsToProtocol:")) { ret(1); return 0; }
     if (IS("hash")) { ret(recv); return 0; }
     if (IS("isEqual:")) { ret(recv == A(2)); return 0; }

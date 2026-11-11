@@ -9,11 +9,11 @@
 - `-[CAKeyframeAnimation animationWithKeyPath:]`
 - `-[CAMediaTimingFunction functionWithName:]`
 - `-[EAGLContext sharegroup]`
-- `-[MPMoviePlayerController setFullscreen:]`
-- `-[MPMoviePlayerController setRepeatMode:]`
-- `-[NSNull null]`
+- `-[GKLocalPlayer localPlayer]`
+- `-[NSDictionary dictionaryWithObject:forKey:]`
 - `-[NSString stringByAddingPercentEscapesUsingEncoding:]`
 - `-[SKPaymentQueue defaultQueue]`
+- `-[UITextField resignFirstResponder]`
 
 ## Faults
 
