@@ -34,7 +34,7 @@ It is **not** a source decompilation. The original armv7 Mach-O runs unmodified 
 
 Rough overall estimate: **about 10 % of the way to a playable game** (menus, map and level loading work; actual play, audio and saving results are unverified). This is a guess, not a measurement.
 
-Known blockers are tracked in [`docs/PORT_STATUS.md`](docs/PORT_STATUS.md).
+Curated map of understood functions: [`docs/KNOWN_FUNCTIONS.md`](docs/KNOWN_FUNCTIONS.md). Known blockers are tracked in [`docs/PORT_STATUS.md`](docs/PORT_STATUS.md).
 
 ## Running
 

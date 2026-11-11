@@ -11,7 +11,7 @@ Verified facts only.
 ## Binary
 - armv7 only, PIE, `__text` 3.57 MB (0x1000-0x40a000 image, DATA to 0x47f000): loads at slide 0 in the host, so no rebasing is needed.
 - Mixed ARM/Thumb-2: 13,032 of 15,964 discovered functions are Thumb. 84% of `__text` decoded.
-- **Almost pure Objective-C**: 11,548 methods named from ObjC metadata (`docs/OBJC_std.md`), only 24 C++ classes (RTTI) - the game logic is not in a C++ engine like Red Alert's.
+- **Almost pure Objective-C**: 11,548 methods named from ObjC metadata (`docs/OBJC_std.md`), only 24 C++ classes (RTTI) - most game logic is Objective-C, plus a C++ engine core (`CRoom`, `CThreadLoader`, ...).
 - Exports trie has 1,900 symbols (mostly SDK C functions).
 - GLES: 157 functions call GL; `UIRequiredDeviceCapabilities: opengles-2` (shaders), with `ES1Renderer`/`ES2Renderer` classes.
 - Frameworks: UIKit, OpenGLES, OpenAL, AVFoundation, StoreKit, GameKit, iAd, MapKit, Twitter, AdSupport, CoreTelephony, ...

@@ -109,7 +109,7 @@ print("wrote docs/FUNCTIONS_%s.md, functions_%s.csv" % (tag, tag))
 
 # ---- CLASSES_<tag>.md
 if classes:
-    C = [f"# C++ classes — Red Alert iOS {tag}\n", "From Itanium RTTI (`tools/rtti.py`). Slot index = vtable position; "
+    C = [f"# C++ classes — Spice Bandits (Tower) {tag}\n", "From Itanium RTTI (`tools/rtti.py`). Slot index = vtable position; "
          "`thumb` marks Thumb-2 entry points. Methods that are `-` are pure-virtual / imports.\n"]
     kids = collections.defaultdict(list)
     for cn, r in classes.items():

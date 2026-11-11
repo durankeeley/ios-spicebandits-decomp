@@ -1,4 +1,4 @@
-# C++ classes — Red Alert iOS std
+# C++ classes — Spice Bandits (Tower) std
 
 From Itanium RTTI (`tools/rtti.py`). Slot index = vtable position; `thumb` marks Thumb-2 entry points. Methods that are `-` are pure-virtual / imports.
 

@@ -1,4 +1,4 @@
-"""Shared helpers for analysing the Red Alert iOS Mach-O (armv7).
+"""Shared helpers for analysing the Spice Bandits iOS Mach-O (armv7).
 
 Setup:  python3 -m venv .venv && .venv/bin/pip install capstone lief
 Facts established so far (see docs/BINARY_NOTES.md):

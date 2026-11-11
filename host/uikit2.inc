@@ -96,6 +96,17 @@ gptr offline_room_field(gptr room, gptr key) {
         if (id && !strcmp(objc_describe(id), objc_describe(cid))) { gptr v = dict_lookup(c, key); if (v) { dict_put(room, key, v); hle_log("[room] %s from offline config %s\n", scstr(key), objc_describe(cid)); } return v; } }
     return 0;
 }
+static void post_notification(const char *name, gptr object, gptr userinfo);
+/* The online server delivers the per-level configs (settings, grantsunlock, msgwin, ...) in the login response and -[TDPlayer processResponse:] posts
+ * TDPlayerReceivedConfigs with them; the offline profile keeps them in userData.configs but nothing posts them, so the engine never learns the level
+ * settings (tutorial prompts, build-around-base, creep hp ...).  Post them once, before the first room data (the join). */
+static void offline_post_configs(void) {
+    static int done; if (done) return;
+    GCls *gc = find_gcls_name("TDSession"); if (!gc) return;
+    gptr pl = send_any(gc->addr, "player", 0, NULL); gptr ud = pl ? send_any(pl, "userData", 0, NULL) : 0; if (!ud) return;
+    gptr cfgs = dict_lookup(ud, new_string("configs")); if (!cfgs || rd32(cfgs + 4) == 0) return;
+    done = 1; post_notification("TDPlayerReceivedConfigs", 0, cfgs);
+}
 static void post_notification(const char *name, gptr object, gptr userinfo) {
     gptr n = 0; hle_log("[notif] post %s\n", name);
     for (int i = 0; i < nnobs; i++) if (nobs[i].obs && (!nobs[i].name[0] || !strcmp(nobs[i].name, name)) && (!nobs[i].object || nobs[i].object == object)) {

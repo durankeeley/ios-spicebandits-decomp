@@ -6,7 +6,7 @@ root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(root, "tools"))
 from ra_disasm import Program
 tag, q = sys.argv[1], sys.argv[2]
-p = Program(f"{root}/work/{tag}/Payload/Red Alert.app/Red Alert").run()
+p = Program(f"{root}/work/{tag}/Payload/Tower.app/Tower").run()
 fn = p.functions()
 if "::vf" in q:
     cls, k = q.split("::vf"); c = [r for r in json.load(open(f"{root}/work/{tag}/classes.json")).values() if r["name"] == cls][0]

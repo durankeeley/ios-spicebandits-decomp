@@ -1,6 +1,6 @@
 # Port status - Spice Bandits
 
-Same architecture as `../ios-redalert`: the armv7 Mach-O runs under Unicorn inside `host/ra_host`, with iOS implemented on the host (SDL2, desktop GL, a mini Objective-C runtime, a small UIKit, CoreGraphics, Foundation). Only `Spice Bandits 1.14.ipa` (decrypted) is usable; the `...hd...ipa` is FairPlay-encrypted.
+Architecture: the armv7 Mach-O runs under Unicorn inside `host/ra_host`, with iOS implemented on the host (SDL2, desktop GL, a mini Objective-C runtime, a small UIKit, CoreGraphics, Foundation). Only `Spice Bandits 1.14.ipa` (decrypted) is usable; the `...hd...ipa` is FairPlay-encrypted.
 
 ## What works (verified by screenshots in `tests/`)
 | area | state |

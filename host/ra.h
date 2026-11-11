@@ -1,4 +1,4 @@
-/* ra.h - shared declarations for the Red Alert iOS host (Unicorn ARM + HLE of Apple APIs). */
+/* ra.h - shared declarations for the iOS host (Unicorn ARM + HLE of Apple APIs). */
 #ifndef RA_H
 #define RA_H
 #include <stdint.h>

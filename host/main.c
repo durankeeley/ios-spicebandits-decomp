@@ -1,4 +1,4 @@
-/* main.c - ra_host: run the iOS Red Alert armv7 binary natively (Linux/Windows) via Unicorn + HLE */
+/* main.c - ra_host: run the iOS Spice Bandits armv7 binary natively (Linux/Windows) via Unicorn + HLE */
 #include "ra.h"
 #include <SDL2/SDL.h>
 #include <sys/stat.h>
