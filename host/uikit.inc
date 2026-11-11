@@ -70,12 +70,12 @@ static gptr image_named(const char *name) {
     static const char *ext[] = {"", ".png", ".jpg", ".jpeg", NULL}; static const char *dirs[] = {"", "gui/", "sfx/", NULL}; char path[1024]; uint8_t *px = NULL; int w = 0, h = 0;
     for (int d = 0; dirs[d] && !px; d++) for (int e = 0; ext[e] && !px; e++) { snprintf(path, sizeof path, "%s/%s%s%s", g_bundle_dir, dirs[d], name, ext[e]); struct stat st; if (!stat(path, &st) && S_ISREG(st.st_mode)) px = load_rgba(path, &w, &h); }
     if (!px || nimg >= 4096) { hle_log("[ui] image not found: %s\n", name); return 0; }
-    strncpy(images[nimg].name, name, 199); images[nimg].rgba = px; images[nimg].w = w; images[nimg].h = h; return new_image(nimg++);
+    if (getenv("RA_IMGLOG")) fprintf(stderr, "[img] %s\n", name); strncpy(images[nimg].name, name, 199); images[nimg].rgba = px; images[nimg].w = w; images[nimg].h = h; return new_image(nimg++);
 }
 static gptr image_from_path(const char *path) {
     for (int i = 0; i < nimg; i++) if (!strcmp(images[i].name, path)) return new_image(i);
     int w, h; uint8_t *px = load_rgba(path, &w, &h); if (!px || nimg >= 4096) return 0;
-    strncpy(images[nimg].name, path, 199); images[nimg].rgba = px; images[nimg].w = w; images[nimg].h = h; return new_image(nimg++);
+    if (getenv("RA_IMGLOG")) fprintf(stderr, "[img] %s\n", path); strncpy(images[nimg].name, path, 199); images[nimg].rgba = px; images[nimg].w = w; images[nimg].h = h; return new_image(nimg++);
 }
 static ImageRec *img_of(gptr o) { if (!o || o >= ARENA_SIZE - 16 || rd32(o) != cls_UIImage) return NULL; u32 i = rd32(o + 4); return i && i <= (u32)nimg ? &images[i - 1] : NULL; }
 static GLuint image_tex(ImageRec *im) {
@@ -215,6 +215,11 @@ static void draw_view(View *v, Mat parent, float alpha) {
     /* developer leftovers authored visible in the nibs (hidden on device by code we do not reproduce): system rounded-rect debug buttons, download-progress placeholders */
     if (v->kind == K_BUTTON && v->obj && !strcmp(v_clsname(v->obj), "UIRoundedRectButton")) return;
     if (v->text && !strncmp(v->text, "progress:", 9)) return;
+    /* Spice shop: no store -> no sale stickers, struck-through old prices, bundle note or "must be online" notice */
+    if (v->text && (!strncmp(v->text, "You must be online", 18) || !strncmp(v->text, "+ parrot and pipe", 17))) return;
+    if (v->text && !strcmp(v->text, "\"Spice must flow!\"")) return;   /* nib placeholder status, hidden unless the player set one */
+    if (v->text && v->text[0] == '$' && v->tag >= 17 && v->tag <= 47 && v->tag % 10 == 7) return;
+    if (v->kind == K_IMAGEVIEW && v->image && img_of(v->image) && (strstr(img_of(v->image)->name, "sale_") || strstr(img_of(v->image)->name, "spiceshop_parrot"))) return;
     float a = alpha * v->alpha, x, y, w, h; v_frame(v, &x, &y, &w, &h);
     Mat T = {1, 0, 0, 1, v->cx, v->cy}, X = {v->ta, v->tb, v->tc_, v->td, v->ttx, v->tty}, B = {1, 0, 0, 1, -v->bw / 2 - 0, -v->bh / 2 - 0};
     Mat m = mat_mul(parent, mat_mul(T, mat_mul(X, B)));      /* parent * translate(center) * transform * translate(-size/2) */
@@ -240,7 +245,8 @@ static void dump_view(View *v, int d) {
     float x, y, w, h; v_frame(v, &x, &y, &w, &h);
     fprintf(stderr, "%*s%s kind=%d (%.0f,%.0f %.0fx%.0f) a=%.2f%s%s%s tag=%d kids=%d%s%s m=%d%s\n", d * 2, "", v_clsname(v->obj), v->kind, x, y, w, h, v->alpha, v->hidden ? " HIDDEN" : "", v->is_gl ? " GL" : "", v->hasbg ? " bg" : "", v->tag, v->nk,
             v->kind == K_IMAGEVIEW && v->image ? " img" : "", v->text ? " text" : "", v->mask, v->noautosub ? " NOAUTOSUB" : "");
-    for (int i = 0; i < v->nk && d < 6; i++) dump_view(v->kids[i], d + 1);
+    if (getenv("RA_UIDUMP_TEXT")) { if (v->text) fprintf(stderr, "%*s   text=\"%.60s\"\n", d * 2, "", v->text); if (v->kind == K_IMAGEVIEW && v->image && img_of(v->image)) fprintf(stderr, "%*s   image=%s\n", d * 2, "", img_of(v->image)->name); }
+    for (int i = 0; i < v->nk && d < 14; i++) dump_view(v->kids[i], d + 1);
 }
 void uikit_dump(void) { fprintf(stderr, "[ui] window=%p views=%d\n", (void *)g_window, nvt); if (g_window) dump_view(g_window, 0); }
 /* UIKit lays views out before they are first shown (this is when EAGLView sizes its renderbuffer). */

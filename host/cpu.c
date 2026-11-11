@@ -111,8 +111,16 @@ static void on_engine_cap(uc_engine *u, uint64_t addr, uint32_t size, void *ud) 
 void cpu_thread_start_now(gptr fn, u32 arg);
 typedef struct { gptr fn; u32 arg; int due; } PendThr;
 static PendThr pend[16]; static int npend, g_frames;
+/* A game created after the EAGLView was un-hidden never gets -resumeGameRender (the device un-hides the view when the level starts), so it stays
+ * paused (game+0x2f4/0x2f5).  Once the level is ready (game+0x18) resume it the way resumeGameRender does: sub_d4dbc(game,1); sub_d4e10(game,1). */
+static u32 g_resumed_game;
+static void game_resume_poll(void) {
+    if (!g_engine_obj) return; u32 game = rd32(g_engine_obj + 0x10); if (!game || game == g_resumed_game) return;
+    if (!arena[game + 0x18] || !arena[game + 0x2f5]) return;
+    g_resumed_game = game; u32 a[2] = { game, 1 }; fprintf(stderr, "[engine] resuming game %08x\n", game); call_guest(0xd4dbc | 1, 2, a); call_guest(0xd4e10 | 1, 2, a);
+}
 void engine_poll(void) {
-    g_frames++;
+    g_frames++; game_resume_poll();
     for (int i = 0; i < npend; i++) {
         if (!pend[i].fn || g_frames < pend[i].due) continue;
         if (g_engine_obj && g_frames < pend[i].due + 600) { gptr cmd = rd32(g_engine_obj + 0x14); if (cmd && rd32(cmd) != 3) continue; }

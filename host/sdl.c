@@ -55,6 +55,7 @@ void sdl_fbo_resize(int w, int h) {
     p_bindrb(GL_RENDERBUFFER, fbo_depth); p_rbstore(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
 }
 void sdl_present(void) {
+    if (getenv("RA_GLDUMP")) fprintf(stderr, "[gldump] ==== present frame %d\n", frame_no);
     if (frame_no == shot_at && shot_path && getenv("RA_FBOSHOT")) {   /* dump the guest's own render target */
         uint8_t *px = malloc((size_t)g_buf_w * g_buf_h * 4); p_bindfb(GL_FRAMEBUFFER, fbo); glReadPixels(0, 0, g_buf_w, g_buf_h, GL_RGBA, GL_UNSIGNED_BYTE, px); p_bindfb(GL_FRAMEBUFFER, 0);
         char fp[4200]; snprintf(fp, sizeof fp, "%s.fbo.ppm", shot_path); FILE *f = fopen(fp, "wb"); fprintf(f, "P6\n%d %d\n255\n", g_buf_w, g_buf_h);

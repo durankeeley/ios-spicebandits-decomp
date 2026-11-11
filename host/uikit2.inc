@@ -74,6 +74,28 @@ static int anim_block(gptr blk, double dur, double delay, int opts, gptr comp) {
 typedef struct { gptr obs; char sel[64]; char name[96]; gptr object; } NObs; static NObs nobs[512]; static int nnobs;
 static gptr cls_Notification;
 static gptr new_notification(const char *name, gptr object, gptr userinfo) { gptr n = new_obj(cls_Notification); wr32(n + 4, new_string(name)); wr32(n + 8, object); wr32(n + 12, userinfo); return n; }
+/* The offline server stand-in answers a join with room data that has no "players" list, but the engine looks its own player up there by slot
+ * (-[TDPlayer playerWithSlot:]); the real server always sends it.  Add the local player (slot 1) built from the profile. */
+gptr offline_room_players(gptr room); gptr offline_room_field(gptr room, gptr key);
+static int is_number(gptr o); static void dict_put(gptr d, gptr k, gptr v); static gptr dict_lookup(gptr d, gptr k);
+gptr offline_room_players(gptr room) {
+    GCls *gc = find_gcls_name("TDSession"); gptr cls = gc ? gc->addr : 0; gptr sess = send_any(cls, "session", 0, NULL); gptr pl = send_any(cls, "player", 0, NULL); if (!pl && sess) pl = send_any(sess, "currentPlayer", 0, NULL); hle_log("[room] cls=%x\n", cls);
+    gptr ud = pl ? send_any(pl, "userData", 0, NULL) : 0; hle_log("[room] sess=%x pl=%x ud=%x room=%x\n", sess, pl, ud, room); if (!room || !ud) return 0;
+    gptr pk = new_string("players"); if (dict_lookup(room, pk)) return dict_lookup(room, pk);
+    gptr me = new_dict(); wr32(me + 4, 0);
+    for (u32 i = 0; i < rd32(ud + 4); i++) { gptr k = rd32(rd32(ud + 8) + 4 * i), v = rd32(rd32(ud + 12) + 4 * i); if (is_string(v) || is_number(v)) dict_put(me, k, v); }
+    dict_put(me, new_string("slot"), new_number_i(1)); dict_put(me, new_string("userid"), new_string("offline")); dict_put(me, new_string("color"), new_number_i(1));
+    gptr arr = new_array(); array_add(arr, me); dict_put(room, pk, arr); hle_log("[room] added local player to roomData\n"); return arr;
+}
+/* settings / grantsunlock / msgwin / msglost live in the offline config but the offline join drops them; serve them from offlineConfigs on demand. */
+gptr offline_room_field(gptr room, gptr key) {
+    GCls *gc = find_gcls_name("TDSession"); if (!gc) return 0;
+    gptr pl = send_any(gc->addr, "player", 0, NULL); gptr ud = pl ? send_any(pl, "userData", 0, NULL) : 0; if (!ud) return 0;
+    gptr cid = dict_lookup(room, new_string("configid")); gptr cfgs = dict_lookup(ud, new_string("offlineConfigs")); if (!cid || !cfgs) return 0;
+    for (u32 i = 0; i < rd32(cfgs + 4); i++) { gptr c = array_get(cfgs, i); gptr id = c ? dict_lookup(c, new_string("configid")) : 0;
+        if (id && !strcmp(objc_describe(id), objc_describe(cid))) { gptr v = dict_lookup(c, key); if (v) { dict_put(room, key, v); hle_log("[room] %s from offline config %s\n", scstr(key), objc_describe(cid)); } return v; } }
+    return 0;
+}
 static void post_notification(const char *name, gptr object, gptr userinfo) {
     gptr n = 0; hle_log("[notif] post %s\n", name);
     for (int i = 0; i < nnobs; i++) if (nobs[i].obs && (!nobs[i].name[0] || !strcmp(nobs[i].name, name)) && (!nobs[i].object || nobs[i].object == object)) {
@@ -269,7 +291,7 @@ static int uikit_msg(const char *cls, gptr recv, const char *sel, int stret, int
     if (UIS("setBounds:")) { v->bx = uf(2, 0); v->by = uf(3, 0); float cx = v->cx, cy = v->cy; v_set_frame(v, cx - f_of(arg(4)) / 2, cy - f_of(arg(5)) / 2, f_of(arg(4)), f_of(arg(5))); ret(0); return 1; }
     if (UIS("setCenter:")) { v->cx = uf(2, 0); v->cy = uf(3, 0); ret(0); return 1; }
     if (UIS("setAlpha:")) { v->alpha = uf(2, 0); ret(0); return 1; } if (UIS("alpha")) { ret(w_of(v->alpha)); return 1; }
-    if (UIS("setHidden:")) { v->hidden = UA(2) & 1; ret(0); return 1; } if (UIS("isHidden")) { ret(v->hidden); return 1; }
+    if (UIS("setHidden:")) { v->hidden = UA(2) & 1; if (getenv("RA_HIDELOG")) hle_log("[hidden] %s = %d (lr=%08x)\n", v_clsname(v->obj), v->hidden, reg(14)); ret(0); return 1; } if (UIS("isHidden")) { ret(v->hidden); return 1; }
     if (UIS("setTag:")) { v->tag = UA(2); ret(0); return 1; } if (UIS("tag")) { ret(v->tag); return 1; }
     if (UIS("viewWithTag:")) { View *r = find_tag(v, UA(2)); ret(r ? r->obj : 0); return 1; }
     if (UIS("addSubview:")) { View *k = view_of(UA(2)); if (k) view_insert(v, k, -1); ret(0); return 1; }

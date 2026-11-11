@@ -32,7 +32,7 @@ It is **not** a source decompilation. The original armv7 Mach-O runs unmodified 
 | Network features | stubbed; the game runs on a bundled offline profile |
 | Windows build | not started |
 
-Rough overall estimate: **about half way to a playable game** (menus, map and level loading work; actual play and audio are unverified). This is a guess, not a measurement.
+Rough overall estimate: **about 10 % of the way to a playable game** (menus, map and level loading work; actual play, audio and saving results are unverified). This is a guess, not a measurement.
 
 Known blockers are tracked in [`docs/PORT_STATUS.md`](docs/PORT_STATUS.md).
 

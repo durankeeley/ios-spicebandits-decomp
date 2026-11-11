@@ -136,7 +136,7 @@ static void bind_arrays(int first, int count) {
 }
 static int gl_err_budget = 20;
 static void gl_check(const char *what) { if (!getenv("RA_GLERR") || gl_err_budget <= 0) return; GLenum e = glGetError(); if (e) { gl_err_budget--; GLint fb = 0, vp[4]; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fb); glGetIntegerv(GL_VIEWPORT, vp); fprintf(stderr, "[glerr] %s -> 0x%x (fb=%d status=0x%x viewport %d,%d %dx%d)\n", what, e, fb, (unsigned)glCheckFramebufferStatus(GL_FRAMEBUFFER), vp[0], vp[1], vp[2], vp[3]); } }
-static int dump_budget = 100000;
+static int dump_budget = 1 << 30;
 static void gl_dump(int first, int count) {
     if (!getenv("RA_GLDUMP") || dump_budget <= 0) return; dump_budget--; GLfloat mv[16], pj[16]; GLint vp[4], tex = 0; glGetFloatv(GL_MODELVIEW_MATRIX, mv); glGetFloatv(GL_PROJECTION_MATRIX, pj); glGetIntegerv(GL_VIEWPORT, vp); glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex);
     fprintf(stderr, "[gldump] draw first=%d count=%d tex=%d blend=%d tex2d=%d depth=%d viewport=%d,%d,%dx%d\n", first, count, tex, glIsEnabled(GL_BLEND), glIsEnabled(GL_TEXTURE_2D), glIsEnabled(GL_DEPTH_TEST), vp[0], vp[1], vp[2], vp[3]);
@@ -157,6 +157,7 @@ static void h_glDrawElements(void) {
 void pvrtc_decode(const uint8_t *src, int w, int h, int bpp2, uint8_t *dst);   /* pvrtc.c */
 static void h_glTexImage2D(void) {
     u32 target = arg(0), level = arg(1), ifmt = arg(2), w = arg(3), h = arg(4), border = arg(5), fmt = arg(6), type = arg(7); gptr px = arg(8);
+    if (getenv("RA_GLTEX")) { GLint b = 0; glGetIntegerv(GL_TEXTURE_BINDING_2D, &b); fprintf(stderr, "[gltex] id=%d %ux%u lvl=%u ifmt=%x fmt=%x type=%x px=%x\n", b, w, h, level, ifmt, fmt, type, px); }
     glTexImage2D(target, level, ifmt, w, h, border, fmt, type, px ? H(px) : NULL);
 }
 static void h_glCompressedTexImage2D(void) {
