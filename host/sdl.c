@@ -55,13 +55,14 @@ void sdl_fbo_resize(int w, int h) {
     p_bindrb(GL_RENDERBUFFER, fbo_depth); p_rbstore(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
 }
 void sdl_present(void) {
-    int ww, wh; SDL_GL_GetDrawableSize(win, &ww, &wh); p_bindfb(GL_FRAMEBUFFER, 0); glViewport(0, 0, ww, wh);
-    { extern void uikit_anim_tick(void); extern void uikit_layout(void); extern void uikit_composite(void); uikit_anim_tick(); uikit_layout(); uikit_composite(); }
-    if (frame_no == shot_at) { extern void prof_report(void); prof_report(); }
     if (frame_no == shot_at && shot_path && getenv("RA_FBOSHOT")) {   /* dump the guest's own render target */
-        uint8_t *px = malloc((size_t)g_buf_w * g_buf_h * 4); glBindTexture(GL_TEXTURE_2D, fbo_tex); glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+        uint8_t *px = malloc((size_t)g_buf_w * g_buf_h * 4); p_bindfb(GL_FRAMEBUFFER, fbo); glReadPixels(0, 0, g_buf_w, g_buf_h, GL_RGBA, GL_UNSIGNED_BYTE, px); p_bindfb(GL_FRAMEBUFFER, 0);
         char fp[4200]; snprintf(fp, sizeof fp, "%s.fbo.ppm", shot_path); FILE *f = fopen(fp, "wb"); fprintf(f, "P6\n%d %d\n255\n", g_buf_w, g_buf_h);
         for (int y = g_buf_h - 1; y >= 0; y--) for (int x = 0; x < g_buf_w; x++) fwrite(px + ((size_t)y * g_buf_w + x) * 4, 1, 3, f); fclose(f); free(px); fprintf(stderr, "[sdl] fbo dump -> %s\n", fp); }
+    int ww, wh; SDL_GL_GetDrawableSize(win, &ww, &wh); p_bindfb(GL_FRAMEBUFFER, 0); glViewport(0, 0, ww, wh);
+    { extern void uikit_anim_tick(void); extern void uikit_layout(void); extern void uikit_composite(void); { extern void engine_poll(void); engine_poll(); } uikit_anim_tick(); uikit_layout(); uikit_composite(); }
+    { extern int g_blkcnt_on; static int bs = -1; if (bs < 0) bs = getenv("RA_BLKCNT") ? atoi(getenv("RA_BLKCNT")) : 0; if (bs && frame_no >= (unsigned)bs) g_blkcnt_on = 1; }
+    if (frame_no == shot_at) { extern void prof_report(void), blkcnt_dump(void); prof_report(); blkcnt_dump(); }
     if (frame_no == shot_at && shot_path) { extern void uikit_dump(void); if (getenv("RA_UIDUMP")) uikit_dump(); write_ppm(shot_path, ww, wh); fprintf(stderr, "[sdl] screenshot -> %s\n", shot_path); if (getenv("RA_EXIT_AFTER_SHOT")) { fflush(stderr); exit(0); } }
     SDL_GL_SwapWindow(win); frame_no++; p_bindfb(GL_FRAMEBUFFER, fbo);
     if (getenv("RA_FPS") && frame_no % 100 == 0) { static double t0; double t = SDL_GetTicks() / 1000.0; fprintf(stderr, "[fps] frame %d  %.1f fps (last 100)\n", frame_no, t0 ? 100.0 / (t - t0) : 0.0); t0 = t; }

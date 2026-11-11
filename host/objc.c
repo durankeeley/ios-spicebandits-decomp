@@ -126,7 +126,10 @@ static void do_send(gptr recv, const char *sel, int stret, gptr start_cls, int u
         static int warned; if (warned++ < 5) fprintf(stderr, "[objc] message %s to invalid receiver %08x (lr=%08x) -> nil\n", sel, recv, reg(14)); ret(0); return; }
     Target t = lookup(recv, sel, use_super, start_cls);
     if (g_trace > 1) hle_log("[msg] %s %s%s\n", objc_describe(recv), sel, t.host ? "  (host)" : "  (guest)");
-    if (t.imp) { set_next_pc(t.imp); return; }
+    if (t.imp) {
+        static int no_tut = -1; if (no_tut < 0) no_tut = getenv("RA_NO_TUTORIAL") != NULL;   /* test aid: skip the first-run tutorial overlays */
+        if (no_tut && !strncmp(sel, "showTutorial:", 13)) { ret(0); return; }
+        set_next_pc(t.imp); return; }
     if (!strcmp(t.fake, "__stub__")) { ret(0); return; }
     int handled = 0;
     host_msg(t.fake, recv, sel, stret, &handled);
@@ -327,6 +330,7 @@ static int host_msg(const char *cls, gptr recv, const char *sel, int stret, int 
             if (!strcmp(k, "AppleLanguages")) { gptr a = new_array(); const char *l = getenv("RA_LANG"); array_add(a, new_string(l ? l : "en")); ret(a); return 0; }
             if (!strcmp(k, "AppleLocale")) { ret(new_string("en_US")); return 0; }
             ret(0); return 0; }
+        if (IS("setObject:forKey:") || IS("setBool:forKey:") || IS("setInteger:forKey:")) hle_log("[defaults] %s key=%s val=%s\n", sel, scstr(A(3)), IS("setObject:forKey:") ? objc_describe(A(2)) : "-");
         ret(0); return 0;
     }
     if (!strcmp(cls, "NSDate")) { if (IS("date")) { ret(new_obj(objc_class_object("NSDate"))); return 0; } }

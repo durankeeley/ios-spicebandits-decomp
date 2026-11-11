@@ -30,7 +30,7 @@ gptr resolve_symbol(const char *name) {
     else if (!strcmp(name, "___stderrp")) a = stdio_slot(2);
     else if (!strcmp(name, "___stdinp")) a = stdio_slot(0);
     else if (!strncmp(name, "_kEAGL", 6) || !strcmp(name, "_NSLocalizedDescriptionKey") || !strcmp(name, "_NSUnderlyingErrorKey") ||
-             !strncmp(name, "_kCFRunLoop", 11) || !strncmp(name, "_MP", 3) || !strncmp(name, "_NSDefaultRunLoopMode", 21)) {
+             !strncmp(name, "_kCFRunLoop", 11) || !strncmp(name, "_MP", 3) || (!strncmp(name, "_UI", 3) && strstr(name, "Notification")) || !strncmp(name, "_NSDefaultRunLoopMode", 21)) {
         a = alloc_fake(16); wr32(a, objc_make_nsstring_global(name + 1));      /* variable holding an NSString* */
     }
     else if (strstr(name, "_S_empty_rep_storage") || !strncmp(name, "__ZTV", 5) || !strncmp(name, "__ZTI", 5) || !strncmp(name, "__ZTS", 5)) a = alloc_fake(64);   /* zeroed rep = empty std::string; vtables/typeinfo blobs */

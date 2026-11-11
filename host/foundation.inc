@@ -29,7 +29,75 @@ static int cmp_sel(gptr a, gptr b, const char *sel) { u32 x[1] = { b }; return (
 static void sort_array(gptr a, const char *sel) { u32 n = rd32(a + 4); for (u32 i = 1; i < n; i++) { gptr x = array_get(a, i); u32 j = i; while (j > 0 && cmp_sel(array_get(a, j - 1), x, sel) > 0) { wr32(rd32(a + 8) + 4 * j, array_get(a, j - 1)); j--; } wr32(rd32(a + 8) + 4 * j, x); } }
 static int is_cls_named(const char *cls, const char *a) { return strstr(cls, a) != NULL; }
 
+
+/* ================= NSUserDefaults: real, persistent (<docs>/defaults.bin) ================= */
+typedef struct { char key[128]; gptr val; } DefEnt;
+static DefEnt g_defs[512]; static int g_ndefs, g_defs_loaded;
+typedef struct { char *p; size_t n, cap; } SBuf;
+static void sb_put(SBuf *b, const void *d, size_t n) { if (b->n + n + 1 > b->cap) { b->cap = (b->n + n + 1) * 2; b->p = realloc(b->p, b->cap); } memcpy(b->p + b->n, d, n); b->n += n; }
+static void sb_fmt(SBuf *b, const char *f, ...) { char t[96]; va_list ap; va_start(ap, f); int n = vsnprintf(t, sizeof t, f, ap); va_end(ap); sb_put(b, t, n); }
+static int defs_ser(SBuf *b, gptr o, int depth) {                /* tagged, length-prefixed text; returns 0 if the object can't be stored */
+    if (!o || o >= ARENA_SIZE - 16 || depth > 12) { sb_put(b, "n;", 2); return 0; }
+    if (is_string(o)) { const char *t = scstr(o); sb_fmt(b, "s%zu:", strlen(t)); sb_put(b, t, strlen(t)); return 1; }
+    if (is_number(o)) { u32 k = rd32(o + 4); if (k == 0) sb_fmt(b, "i%d;", (s32)rd32(o + 8)); else if (k == 1) sb_fmt(b, "u%llu;", (unsigned long long)*(u64 *)H(o + 8)); else sb_fmt(b, "f%.17g;", num_double(o)); return 1; }
+    gptr c = rd32(o); if (c == (cls_NSDate ? cls_NSDate : (cls_NSDate = objc_class_object("NSDate")))) { sb_fmt(b, "d%.17g;", date_t(o)); return 1; }
+    if (c == cls_NSArray || c == cls_NSMutableArray) { u32 n = rd32(o + 4); sb_fmt(b, "a%u[", n); for (u32 i = 0; i < n; i++) defs_ser(b, array_get(o, i), depth + 1); sb_put(b, "]", 1); return 1; }
+    if (c == cls_NSDictionary || c == objc_class_object("NSMutableDictionary")) { u32 n = rd32(o + 4); sb_fmt(b, "m%u{", n); for (u32 i = 0; i < n; i++) { defs_ser(b, rd32(rd32(o + 8) + 4 * i), depth + 1); defs_ser(b, rd32(rd32(o + 12) + 4 * i), depth + 1); } sb_put(b, "}", 1); return 1; }
+    if (c == cls_NSData || c == objc_class_object("NSMutableData")) { u32 n = rd32(o + 8); sb_fmt(b, "x%u:", n); sb_put(b, H(rd32(o + 4)), n); return 1; }
+    sb_put(b, "n;", 2); return 0;
+}
+static gptr defs_parse(const char **pp) {
+    const char *p = *pp; gptr r = 0; char *e;
+    switch (*p++) {
+    case 's': { size_t n = strtoul(p, &e, 10); p = e + 1; char *t = strndup(p, n); r = new_string(t); free(t); p += n; break; }
+    case 'i': r = new_number_i((s32)strtol(p, &e, 10)); p = e + 1; break;
+    case 'u': r = new_number_u64(strtoull(p, &e, 10)); p = e + 1; break;
+    case 'f': r = new_number_d(strtod(p, &e)); p = e + 1; break;
+    case 'd': r = new_date(strtod(p, &e)); p = e + 1; break;
+    case 'a': { u32 n = strtoul(p, &e, 10); p = e + 1; r = new_array(); for (u32 i = 0; i < n; i++) array_add(r, defs_parse(&p)); p++; break; }
+    case 'm': { u32 n = strtoul(p, &e, 10); p = e + 1; r = new_dict(); wr32(r + 4, 0); for (u32 i = 0; i < n; i++) { gptr k = defs_parse(&p), v = defs_parse(&p); if (k && v) dict_put(r, k, v); } p++; break; }
+    case 'x': { u32 n = strtoul(p, &e, 10); p = e + 1; r = new_data(p, n); p += n; break; }
+    case 'n': p++; break;
+    default: break; }
+    *pp = p; return r;
+}
+static void defs_path(char *out, size_t n) { snprintf(out, n, "%s/defaults.bin", g_docs_dir); }
+static void defs_save(void) {
+    SBuf b = {0}; for (int i = 0; i < g_ndefs; i++) { if (!g_defs[i].val) continue; sb_fmt(&b, "s%zu:", strlen(g_defs[i].key)); sb_put(&b, g_defs[i].key, strlen(g_defs[i].key)); defs_ser(&b, g_defs[i].val, 0); }
+    char path[4200], tmp[4210]; defs_path(path, sizeof path); snprintf(tmp, sizeof tmp, "%s.tmp", path); mkdir(g_docs_dir, 0755);
+    FILE *f = fopen(tmp, "wb"); if (f) { fwrite(b.p ? b.p : "", 1, b.n, f); fclose(f); rename(tmp, path); } free(b.p);
+}
+static void defs_load(void) {
+    if (g_defs_loaded) return; g_defs_loaded = 1; char path[4200]; defs_path(path, sizeof path); FILE *f = fopen(path, "rb"); if (!f) return;
+    fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char *d = malloc(n + 1); if (fread(d, 1, n, f) != (size_t)n) n = 0; d[n] = 0; fclose(f);
+    const char *p = d; while (p < d + n && g_ndefs < 512) { gptr k = defs_parse(&p); gptr v = defs_parse(&p); if (!is_string(k)) break; snprintf(g_defs[g_ndefs].key, sizeof g_defs[0].key, "%s", scstr(k)); g_defs[g_ndefs++].val = v; }
+    free(d); hle_log("[defaults] loaded %d keys from %s\n", g_ndefs, path);
+}
+static DefEnt *defs_find(const char *k) { defs_load(); for (int i = 0; i < g_ndefs; i++) if (!strcmp(g_defs[i].key, k)) return &g_defs[i]; return NULL; }
+static void defs_set(const char *k, gptr v) {
+    defs_load(); DefEnt *e = defs_find(k); if (!v) { if (e) { e->val = 0; defs_save(); } return; }
+    SBuf b = {0}; defs_ser(&b, v, 0); sb_put(&b, "", 1); const char *pp = b.p; gptr copy = defs_parse(&pp); free(b.p);   /* store an independent snapshot, as UserDefaults does */
+    if (!e) { if (g_ndefs >= 512) return; e = &g_defs[g_ndefs++]; snprintf(e->key, sizeof e->key, "%s", k); } e->val = copy; defs_save();
+}
+static int defaults_msg(const char *sel, gptr recv, int is_cls, int stret) {
+    (void)recv; if (is_cls) return 0;
+    if (strstr(sel, "ForKey:") && !strncmp(sel, "set", 3) == 0) hle_log("[defaults] get %s %s\n", sel, scstr(UA(2)));
+    if (FS("objectForKey:") || FS("valueForKey:") || FS("stringForKey:") || FS("arrayForKey:") || FS("dictionaryForKey:") || FS("dataForKey:") || FS("stringArrayForKey:")) { const char *k = scstr(UA(2)); DefEnt *e = defs_find(k); if (e && e->val) { ret(e->val); return 1; } return 0; }
+    if (FS("integerForKey:") || FS("boolForKey:")) { DefEnt *e = defs_find(scstr(UA(2))); ret(e && e->val ? (u32)(FS("boolForKey:") ? num_double(e->val) != 0 : (s32)num_double(e->val)) : 0); return 1; }
+    if (FS("floatForKey:")) { DefEnt *e = defs_find(scstr(UA(2))); float f = e && e->val ? (float)num_double(e->val) : 0; ret(w_of(f)); return 1; }
+    if (FS("doubleForKey:")) { DefEnt *e = defs_find(scstr(UA(2))); ret_double(e && e->val ? num_double(e->val) : 0); return 1; }
+    if (FS("setObject:forKey:")) { defs_set(scstr(UA(3)), UA(2)); ret(0); return 1; }
+    if (FS("setInteger:forKey:") || FS("setBool:forKey:")) { defs_set(scstr(UA(3)), new_number_i((s32)UA(2))); ret(0); return 1; }
+    if (FS("setFloat:forKey:")) { defs_set(scstr(UA(3)), new_number_d(f_of(UA(2)))); ret(0); return 1; }
+    if (FS("setDouble:forKey:")) { defs_set(scstr(arg(4)), new_number_d(dbl_of64(arg64(2)))); ret(0); return 1; }
+    if (FS("removeObjectForKey:")) { defs_set(scstr(UA(2)), 0); ret(0); return 1; }
+    if (FS("synchronize")) { defs_save(); ret(1); return 1; }
+    if (FS("registerDefaults:")) { gptr d = UA(2); defs_load(); for (u32 i = 0; d && i < rd32(d + 4); i++) { const char *k = scstr(rd32(rd32(d + 8) + 4 * i)); if (!defs_find(k)) defs_set(k, rd32(rd32(d + 12) + 4 * i)); } ret(0); return 1; }
+    return 0;
+}
+
 static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int is_cls) {
+    if (!strcmp(cls, "NSUserDefaults") && defaults_msg(sel, recv, is_cls, stret)) return 1;
     /* ================= NSArray / NSMutableArray / NSSet ================= */
     if (is_cls_named(cls, "Array") || !strcmp(cls, "NSSet") || !strcmp(cls, "NSMutableSet")) {
         gptr ac = objc_class_object(strstr(cls, "Mutable") ? "NSMutableArray" : "NSArray");

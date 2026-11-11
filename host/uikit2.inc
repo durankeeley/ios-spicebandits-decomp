@@ -15,6 +15,7 @@ typedef struct { View *v; float from[NPROP], to[NPROP], last[NPROP]; unsigned ch
 static Anim anims[2048]; static int nanims;
 static struct { int open; double dur, delay; float rep; int autorev, curve; gptr dlg, ctx, name, comp; char stop[64]; float (*snap)[NPROP]; int n; } sc;
 static unsigned long g_anim_frames;
+static double g_movie_start;
 static double anim_now(void) { if (getenv("RA_NOVSYNC")) return g_anim_frames / 60.0; struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec + ts.tv_nsec * 1e-9; }
 static void get_props(View *v, float *o) { o[0] = v->cx; o[1] = v->cy; o[2] = v->bw; o[3] = v->bh; o[4] = v->alpha; o[5] = v->ta; o[6] = v->tb; o[7] = v->tc_; o[8] = v->td; o[9] = v->ttx; o[10] = v->tty; }
 static void put_props(View *v, const float *o) { v->cx = o[0]; v->cy = o[1]; v->bw = o[2]; v->bh = o[3]; v->alpha = o[4]; v->ta = o[5]; v->tb = o[6]; v->tc_ = o[7]; v->td = o[8]; v->ttx = o[9]; v->tty = o[10]; }
@@ -84,7 +85,7 @@ static void post_notification(const char *name, gptr object, gptr userinfo) {
 typedef struct { double due; int kind; gptr a, b; } Deferred; static Deferred defers[64]; static int ndefer;
 void sk_deliver(gptr req);
 static gptr new_data(const void *p, u32 n); static const char *url_path(gptr u);
-static void host_defer(int kind, gptr a, gptr b, double delay) { if (ndefer < 64) { defers[ndefer].due = now_s() + delay; defers[ndefer].kind = kind; defers[ndefer].a = a; defers[ndefer].b = b; ndefer++; } }
+static void host_defer(int kind, gptr a, gptr b, double delay) { int fr = -1; for (int i = 0; i < ndefer; i++) if (!defers[i].kind) { fr = i; break; } if (fr >= 0) { defers[fr].due = now_s() + delay; defers[fr].kind = kind; defers[fr].a = a; defers[fr].b = b; return; } if (ndefer < 64) { defers[ndefer].due = now_s() + delay; defers[ndefer].kind = kind; defers[ndefer].a = a; defers[ndefer].b = b; ndefer++; } }
 void host_run_deferred(void) {
     double t = now_s();
     for (int i = 0; i < ndefer; i++) if (defers[i].kind && defers[i].due <= t) { Deferred d = defers[i]; defers[i].kind = 0;
@@ -99,7 +100,7 @@ void host_run_deferred(void) {
                 if (guest_responds(del, "connection:didReceiveData:")) { u32 a[2] = { d.a, dat }; send_guest(del, "connection:didReceiveData:", 2, a); }
                 if (guest_responds(del, "connectionDidFinishLoading:")) { u32 a[1] = { d.a }; send_guest(del, "connectionDidFinishLoading:", 1, a); } continue; } }
             if (del && guest_responds(del, "connection:didFailWithError:")) { u32 a[2] = { d.a, new_error("NSURLErrorDomain", -1009) }; send_guest(del, "connection:didFailWithError:", 2, a); } }
-        else if (d.kind == 4) sk_deliver(d.a);
+        else if (d.kind == 4) { if (g_spice_view_loaded) sk_deliver(d.a); else host_defer(4, d.a, 0, 0.3); }
         else if (d.kind == 2) { post_notification("MPMoviePlayerLoadStateDidChangeNotification", d.a, 0); post_notification("MPMediaPlaybackIsPreparedToPlayDidChangeNotification", d.a, 0); } }
     int w = 0; for (int i = 0; i < ndefer; i++) if (defers[i].kind) defers[w++] = defers[i]; ndefer = w;
 }
@@ -219,7 +220,7 @@ static int uikit_msg(const char *cls, gptr recv, const char *sel, int stret, int
     }
     if (!strcmp(cls, "NSNotificationCenter")) {
         if (!cls_Notification) cls_Notification = objc_class_object("NSNotification");
-        if (UIS("addObserver:selector:name:object:")) { if (nnobs < 512 && UA(2)) { NObs *o = &nobs[nnobs++]; o->obs = UA(2); strncpy(o->sel, gstr(UA(3)), 63); strncpy(o->name, UA(4) ? scstr(UA(4)) : "", 95); o->object = UA(5); hle_log("[notif] observe %s -> %s %s\n", o->name, v_clsname(o->obs), o->sel); } ret(0); return 1; }
+        if (UIS("addObserver:selector:name:object:")) { if (nnobs < 512 && UA(2)) { NObs *o = &nobs[nnobs++]; o->obs = UA(2); strncpy(o->sel, gstr(UA(3)), 63); strncpy(o->name, (UA(4) && *scstr(UA(4))) ? scstr(UA(4)) : "__unbound__", 95); o->object = UA(5); hle_log("[notif] observe %s -> %s %s\n", o->name, v_clsname(o->obs), o->sel); } ret(0); return 1; }
         if (UIS("removeObserver:") || UIS("removeObserver:name:object:")) { for (int i = 0; i < nnobs; i++) if (nobs[i].obs == UA(2)) nobs[i].obs = 0; ret(0); return 1; }
         if (UIS("postNotificationName:object:")) { post_notification(scstr(UA(2)), UA(3), 0); ret(0); return 1; }
         if (UIS("postNotificationName:object:userInfo:")) { post_notification(scstr(UA(2)), UA(3), UA(4)); ret(0); return 1; }
@@ -234,13 +235,13 @@ static int uikit_msg(const char *cls, gptr recv, const char *sel, int stret, int
     }
     if (!strcmp(cls, "MPMoviePlayerController") || !strcmp(cls, "MPMoviePlayerViewController")) {
         if (UIS("initWithContentURL:")) { wr32(recv + 4, UA(2)); ret(recv); return 1; }
-        if (UIS("play")) { host_defer(1, recv, 0, 0.05); ret(0); return 1; }
+        if (UIS("play")) { g_movie_start = anim_now(); host_defer(1, recv, 0, 0.05); ret(0); return 1; }
         if (UIS("prepareToPlay")) { host_defer(2, recv, 0, 0.01); ret(0); return 1; }
         if (UIS("loadState")) { ret(3); return 1; } if (UIS("isPreparedToPlay")) { ret(1); return 1; } if (UIS("playbackState")) { ret(0); return 1; }
         if (UIS("view") || UIS("backgroundView")) { gptr slot = UIS("view") ? recv + 8 : recv + 12; if (!rd32(slot)) { gptr o = new_obj(objc_class_object("UIView")); View *vv = view_of(o); v_set_frame(vv, 0, 0, g_scr_w, g_scr_h); vv->hasbg = 1; vv->bg[3] = 1; wr32(slot, o); } ret(rd32(slot)); return 1; }
         if (UIS("moviePlayer")) { ret(recv); return 1; }
         if (UIS("stop") || UIS("pause") || UIS("setControlStyle:") || UIS("setScalingMode:") || UIS("setShouldAutoplay:") || UIS("setFullscreen:animated:") || UIS("setMovieSourceType:") || UIS("setUseApplicationAudioSession:") || UIS("setAllowsAirPlay:")) { ret(0); return 1; }
-        if (UIS("currentPlaybackTime") || UIS("duration") || UIS("endPlaybackTime")) { u64 z = 0; ret64(z); return 1; }
+        if (UIS("currentPlaybackTime") || UIS("duration") || UIS("endPlaybackTime")) { double t = UIS("currentPlaybackTime") ? (g_movie_start > 0 ? anim_now() - g_movie_start : 0) : (UIS("duration") ? 5.0 : 0); if (t > 600) t = 600; u64 z; memcpy(&z, &t, 8); ret64(z); return 1; }
         return 0;
     }
     if (!strcmp(cls, "MPMusicPlayerController")) { if (is_cls && (UIS("iPodMusicPlayer") || UIS("applicationMusicPlayer"))) { ret(new_obj(objc_class_object("MPMusicPlayerController"))); return 1; } ret(0); return 1; }

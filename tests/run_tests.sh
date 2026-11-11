@@ -5,6 +5,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 MODE=${1:-full}; APP="$PWD/work/std/Payload/Tower.app"; BIN=host/build/ra_host
+APP_NEW="$APP"   # fresh profile: welcome tutorial, then the map
+
 OUT=$(mktemp -d); export SDL_VIDEODRIVER=${TEST_VIDEO:-offscreen} RA_NOVSYNC=1
 PASS=0; FAIL=0; SKIP=0
 ok() { echo "  PASS  $1"; PASS=$((PASS+1)); }; bad() { echo "  FAIL  $1${2:+  -- $2}"; FAIL=$((FAIL+1)); }; skip() { echo "  SKIP  $1${2:+  -- $2}"; SKIP=$((SKIP+1)); }
@@ -25,7 +27,7 @@ $BIN >/dev/null 2>&1; [ $? -eq 2 ] && ok "no arguments -> usage, exit 2" || bad 
 $BIN --app /nonexistent >/dev/null 2>&1; [ $? -ne 0 ] && ok "missing app -> non-zero" || bad "missing app -> non-zero"
 
 echo "== 4. boot smoke (30 s of the app launch path)"
-timeout 30 $BIN --app "$APP" >"$OUT/boot.log" 2>&1; RC=$?
+timeout 30 $BIN --app "$APP" --docs "$OUT/docs_boot" >"$OUT/boot.log" 2>&1; RC=$?
 [ $RC -eq 124 ] && ok "app keeps running for 30 s (no crash, no exit)" || bad "app keeps running for 30 s" "rc=$RC"
 grep -q "loaded .*Tower, entry" "$OUT/boot.log" && ok "Mach-O loaded (PIE, binds resolved)" || bad "Mach-O loaded"
 grep -q "UIApplicationMain\|launched; delegate=" "$OUT/boot.log" && ok "UIApplicationMain reached, delegate created" || bad "UIApplicationMain reached"
@@ -37,8 +39,15 @@ N=$(grep -o 'UNIMPLEMENTED import [A-Za-z0-9_]*' "$OUT/boot.log" | sort -u | wc 
 ! grep -q "Segmentation\|core dumped" "$OUT/boot.log" && ok "host did not crash" || bad "host did not crash"
 check "HLE backlog generator runs (tools/hle_todo.sh)" tools/hle_todo.sh "$APP" 10
 
+# returning player: same app, but the offline profile already has xp, so the lobby (not the first-run tutorial) is shown
+APP_RET="$OUT/returning/Tower.app"; mkdir -p "$APP_RET"; for f in "$APP"/*; do [ "$(basename "$f")" = offline_data.dat ] || ln -sf "$f" "$APP_RET/"; done
+python3 - "$APP/offline_data.dat" "$APP_RET/offline_data.dat" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d['userData']['xppoints'] = '5'; d['userData']['unlocks'] = ['tut']; json.dump(d, open(sys.argv[2], 'w'))
+PY
+SAPP="$APP_RET"
 echo "== 5. rendering: boot -> main menu -> Play -> world map (screenshot signatures)"
-shot() { local n=$1 f=$2 c=${3:-}; RA_CLICKS="$c" RA_SHOT="$OUT/$n.ppm" RA_SHOT_FRAME=$f RA_EXIT_AFTER_SHOT=1 timeout 400 $BIN --app "$APP" >"$OUT/$n.log" 2>&1 | head -c 50000000; SHOTRC=$?; }
+shot() { local n=$1 f=$2 c=${3:-}; local A=${SAPP:-$APP}; RA_CLICKS="$c" RA_SHOT="$OUT/$n.ppm" RA_SHOT_FRAME=$f RA_EXIT_AFTER_SHOT=1 timeout 400 $BIN --app "$A" --docs "$OUT/docs_$n" >"$OUT/$n.log" 2>&1 | head -c 50000000; SHOTRC=$?; }
 shot menu 900 ""
 [ -f "$OUT/menu.ppm" ] && ok "frames are presented (main menu screenshot produced)" || bad "main menu screenshot produced"
 [ -f "$OUT/menu.ppm" ] && check "main menu renders (nib views, CgBI images, text) - matches golden" python3 tests/imgcheck.py cmp "$OUT/menu.ppm" tests/golden/menu.txt 24 || true
@@ -56,4 +65,11 @@ RA_CLICK_HOLD=8 shot spice 2600 "700:640:436,1100:835:37"
 [ -f "$OUT/spice.ppm" ] && check "shop -> 'Spice' tab shows the spice shop with its four items" python3 tests/imgcheck.py cmp "$OUT/spice.ppm" tests/golden/spice.txt 24 || bad "spice screenshot produced"
 RA_CLICK_HOLD=8 shot shopmap 1800 "700:640:436,1100:245:37"
 [ -f "$OUT/shopmap.ppm" ] && check "shop -> 'Map' tab opens the world map" python3 tests/imgcheck.py cmp "$OUT/shopmap.ppm" tests/golden/map.txt 60 || bad "shop->map screenshot produced"
+SAPP="$APP_NEW"
+echo "== 6. first run: welcome tutorial -> world map -> Training level"
+shot welcome 900 ""
+[ -f "$OUT/welcome.ppm" ] && check "first run shows the welcome tutorial over the map" python3 tests/imgcheck.py cmp "$OUT/welcome.ppm" tests/golden/welcome.txt 24 || bad "welcome screenshot produced"
+shot level 2800 "500:600:640,900:520:332"
+[ -f "$OUT/level.ppm" ] && check "Training flyout -> level loads and renders (Training Station)" python3 tests/imgcheck.py cmp "$OUT/level.ppm" tests/golden/level.txt 24 || bad "level screenshot produced"
+! grep -q "emu error\|memory fault" "$OUT/level.log" && ok "no CPU errors while loading the level" || bad "no CPU errors while loading the level"
 echo; echo "passed=$PASS failed=$FAIL skipped=$SKIP   (logs: $OUT)"; [ $FAIL -eq 0 ]

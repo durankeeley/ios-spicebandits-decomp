@@ -169,16 +169,20 @@ static void autoresize_axis(int mask_lo, int mask_sz, int mask_hi, float pos, fl
     float f0, f1; if (tot > 0.001f) { f0 = delta * parts[0] / tot; f1 = delta * parts[1] / tot; } else { f0 = mask_lo ? delta / cnt : 0; f1 = mask_sz ? delta / cnt : 0; }
     *npos = pos + f0; *nsize = size + f1;
 }
+static const char *v_clsname(gptr o);
+/* TutorialView sizes its bubble from the measured text and relies on its nib children following (the nib stores autoresizesSubviews=NO). */
+static int in_tutorial(View *v) { for (; v; v = v->parent) if (v->obj && !strcmp(v_clsname(v->obj), "TutorialView")) return 1; return 0; }
 static void v_set_frame(View *v, float x, float y, float w, float h) {
     float ow = v->bw, oh = v->bh; if (ow != w || oh != h) v->dirty = 1;
     v->bw = w; v->bh = h; v->cx = x + w / 2; v->cy = y + h / 2;
-    if ((ow != w || oh != h) && v->nk && !v->noautosub && ow > 0 && oh > 0)
+    if ((ow != w || oh != h) && v->nk && (!v->noautosub || in_tutorial(v)) && ow > 0 && oh > 0)
         for (int i = 0; i < v->nk; i++) { View *c = v->kids[i]; if (!c->mask) continue; float cx0 = c->cx - c->bw / 2, cy0 = c->cy - c->bh / 2, nx, nw, ny, nh;
             autoresize_axis(c->mask & 1, c->mask & 2, c->mask & 4, cx0, c->bw, ow, w - ow, &nx, &nw); autoresize_axis(c->mask & 8, c->mask & 16, c->mask & 32, cy0, c->bh, oh, h - oh, &ny, &nh);
             if (nw < 0) nw = 0; if (nh < 0) nh = 0; v_set_frame(c, nx, ny, nw, nh); }
 }
 static const char *v_clsname(gptr o) { gptr c = rd32(o); GCls *g = find_gcls(c); return g ? g->name : (is_fake_class(c) ? fake_name(c) : "?"); }
 static int g_gl_view_marked;
+int g_spice_view_loaded;   /* StoreKit answers are held back until the Spice shop screen exists to receive them */
 
 /* image content size in points */
 static void image_size(gptr img, float *w, float *h) { ImageRec *im = img_of(img); *w = im ? im->w : 0; *h = im ? im->h : 0; }
@@ -219,7 +223,7 @@ static void draw_view(View *v, Mat parent, float alpha) {
         glEnable(GL_SCISSOR_TEST); glScissor((int)fminf(sx0, sx1), (int)(g_scr_h - fmaxf(sy0, sy1)), (int)fabsf(sx1 - sx0) + 1, (int)fabsf(sy1 - sy0) + 1); scissor = 1; }
     glDisable(GL_TEXTURE_2D);
     if (v->hasbg && v->bg[3] > 0.003f) { glColor4f(v->bg[0], v->bg[1], v->bg[2], v->bg[3] * a); quad(m, 0, 0, v->bw, v->bh, 0, 0, 1, 1); }
-    if (v->is_gl) { glBindTexture(GL_TEXTURE_2D, sdl_fbo_tex()); glEnable(GL_TEXTURE_2D); glColor4f(1, 1, 1, a); quad(m, 0, 0, v->bw, v->bh, 0, 1, 1, 0); }
+    if (v->is_gl && !getenv("RA_NOGLQUAD")) { glBindTexture(GL_TEXTURE_2D, sdl_fbo_tex()); glEnable(GL_TEXTURE_2D); glColor4f(1, 1, 1, a); quad(m, 0, 0, v->bw, v->bh, 0, 1, 1, 0); }
     else if (v->kind == K_IMAGEVIEW) { draw_image(m, v->highlighted && v->himage ? v->himage : v->image, 0, 0, v->bw, v->bh, a, v->enabled_set /* contentMode stored in align slot */ ? 0 : 0); }
     else if (v->kind == K_BUTTON) {
         int st = v->disabled ? 2 : v->highlighted ? 1 : v->selected ? 3 : 0; gptr bg = v->bbg[st] ? v->bbg[st] : v->bbg[0]; gptr im = v->bimg[st] ? v->bimg[st] : v->bimg[0];
@@ -234,8 +238,8 @@ static void draw_view(View *v, Mat parent, float alpha) {
 }
 static void dump_view(View *v, int d) {
     float x, y, w, h; v_frame(v, &x, &y, &w, &h);
-    fprintf(stderr, "%*s%s kind=%d (%.0f,%.0f %.0fx%.0f) a=%.2f%s%s%s tag=%d kids=%d%s%s\n", d * 2, "", v_clsname(v->obj), v->kind, x, y, w, h, v->alpha, v->hidden ? " HIDDEN" : "", v->is_gl ? " GL" : "", v->hasbg ? " bg" : "", v->tag, v->nk,
-            v->kind == K_IMAGEVIEW && v->image ? " img" : "", v->text ? " text" : "");
+    fprintf(stderr, "%*s%s kind=%d (%.0f,%.0f %.0fx%.0f) a=%.2f%s%s%s tag=%d kids=%d%s%s m=%d%s\n", d * 2, "", v_clsname(v->obj), v->kind, x, y, w, h, v->alpha, v->hidden ? " HIDDEN" : "", v->is_gl ? " GL" : "", v->hasbg ? " bg" : "", v->tag, v->nk,
+            v->kind == K_IMAGEVIEW && v->image ? " img" : "", v->text ? " text" : "", v->mask, v->noautosub ? " NOAUTOSUB" : "");
     for (int i = 0; i < v->nk && d < 6; i++) dump_view(v->kids[i], d + 1);
 }
 void uikit_dump(void) { fprintf(stderr, "[ui] window=%p views=%d\n", (void *)g_window, nvt); if (g_window) dump_view(g_window, 0); }
@@ -390,6 +394,7 @@ gptr nib_load(const char *name, gptr owner, int *out_isapp) {
     for (int i = 0; sfx[i] && !nb; i++) { snprintf(path, sizeof path, "%s/%s%s", g_bundle_dir, name, sfx[i]); nb = nib_parse(path); }
     if (!nb) { hle_log("[nib] %s not found\n", name); return 0; } nb->owner = owner; (void)out_isapp;
     hle_log("[nib] loading %s (%d objects) owner=%s\n", path, nb->nobj, owner ? v_clsname(owner) : "nil");
+    if (strstr(path, "SpiceShopViewController")) g_spice_view_loaded = 1;
     int top = nv_ref(nb, 0, "UINibTopLevelObjectsKey"); gptr tops = new_array(); int ntop = 0, *topidx = NULL;
     if (top >= 0) { NObj *o = &nb->objs[top]; topidx = malloc(sizeof(int) * (o->n + 1)); for (int i = 0; i < o->n; i++) { NV *e = &nb->vals[o->first + i]; if (e->type == 10) { topidx[ntop++] = e->u.ref; gptr x = nib_make(nb, e->u.ref); if (x && strcmp(nclass(nb, e->u.ref), "UIProxyObject")) array_add(tops, x); }   /* proxies (File's Owner, First Responder) are not returned */ } }
     /* also instantiate everything reachable via UINibObjectsKey (covers non-top-level views referenced only by connections) */

@@ -148,7 +148,10 @@ static void h_qsort(void) { /* comparator runs in the guest through a nested eng
         memcpy(H(base + j * sz), H(tg), sz); gm_free(tg); }
     free(tmp); }
 /* ---------- threads: run the start routine synchronously on a nested engine (the emulator is single threaded) ---------- */
-static void h_pthread_create(void) { gptr tid = arg(0), fn = arg(2), a = arg(3); if (tid) wr32(tid, 0x7D000001); u32 args[1] = { a }; hle_log("[thread] create fn=%08x -> running synchronously\n", fn); call_guest(fn, 1, args); ret(0); }
+int cpu_in_thread(void); void cpu_thread_start(gptr, u32), cpu_thread_wake(void), host_cpu_stop(void);
+static void h_cond_wait(void) { ret(0); if (cpu_in_thread()) { hle_log("[thread] parked in cond_wait\n"); host_cpu_stop(); } }
+static void h_cond_signal(void) { ret(0); cpu_thread_wake(); }
+static void h_pthread_create(void) { gptr tid = arg(0), fn = arg(2), a = arg(3); if (tid) wr32(tid, 0x7D000001); u32 args[1] = { a }; hle_log("[thread] create fn=%08x -> running synchronously\n", fn); cpu_thread_start(fn, a); ret(0); }
 static void h_pthread_self(void) { ret(0x7D000001); }
 static void h_NSSelectorFromString(void) { extern const char *objc_describe(gptr); ret(gm_strdup(objc_describe(arg(0)))); }
 /* ---------- stdio ---------- */
@@ -165,6 +168,7 @@ static void h_fopen(void) {
     const char *p = host_path(gstr(arg(0)));
     FILE *f = fopen(p, gstr(arg(1))); if (!f) { SETERR(); hle_log("[fopen] %s FAILED\n", p); ret(0); return; }
     hle_log("[fopen] %s\n", p);
+    { extern void guest_backtrace(void); const char *w = getenv("RA_BT_FOPEN"); if (w && strstr(p, w)) { fprintf(stderr, "[fopen-bt %s]", p); guest_backtrace(); } }
     int i = fnew(f); ret(i < 0 ? 0 : fblk[i]);
 }
 static void h_fclose(void) { FILE *f = getf(arg(0)); if (f) { u32 i = rd32(arg(0)); fclose(f); ftab[i] = NULL; wr32(arg(0) + 4, 0); } ret(0); }
@@ -313,7 +317,7 @@ static const HleEntry libc_tab[] = {
     {"sinf", h_sinf}, {"cosf", h_cosf}, {"sqrtf", h_sqrtf}, {"floorf", h_floorf}, {"ceilf", h_ceilf}, {"tanf", h_tanf}, {"atanf", h_atanf}, {"fabsf", h_fabsf}, {"atan2f", h_atan2f}, {"roundf", h_roundf}, {"truncf", h_truncf}, {"logf", h_logf}, {"expf", h_expf}, {"asinf", h_asinf}, {"acosf", h_acosf}, {"log2f", h_log2f}, {"sinhf", h_sinhf}, {"coshf", h_coshf}, {"round", h_round}, {"trunc", h_trunc}, {"asin", h_asin}, {"acos", h_acos}, {"log10", h_log10}, {"log2", h_log2}, {"fmodf", h_fmodf}, {"lroundf", h_lroundf}, {"powf", h_powf},
     {"__cxa_guard_acquire", h_guard_acquire}, {"__cxa_guard_release", h_guard_release}, {"__cxa_allocate_exception", h_alloc_exc}, {"__cxa_throw", h_throw}, {"__cxa_pure_virtual", h_pure},
     {"_Unwind_SjLj_Register", h_noop}, {"_Unwind_SjLj_Unregister", h_noop}, {"_Unwind_SjLj_Resume", h_sjlj_resume}, {"__gxx_personality_sj0", h_zero}, {"__cxa_begin_catch", h_zero}, {"__cxa_end_catch", h_noop},
-    {"pthread_create", h_pthread_create}, {"pthread_join", h_pthread_zero}, {"pthread_detach", h_pthread_zero}, {"pthread_self", h_pthread_self}, {"pthread_attr_init", h_pthread_zero}, {"pthread_attr_setdetachstate", h_pthread_zero}, {"pthread_attr_destroy", h_pthread_zero}, {"pthread_cond_init", h_pthread_zero}, {"pthread_cond_signal", h_pthread_zero}, {"pthread_cond_broadcast", h_pthread_zero}, {"pthread_mutexattr_init", h_pthread_zero}, {"pthread_mutexattr_settype", h_pthread_zero}, {"NSSelectorFromString", h_NSSelectorFromString},
+    {"pthread_create", h_pthread_create}, {"pthread_join", h_pthread_zero}, {"pthread_detach", h_pthread_zero}, {"pthread_self", h_pthread_self}, {"pthread_attr_init", h_pthread_zero}, {"pthread_attr_setdetachstate", h_pthread_zero}, {"pthread_attr_destroy", h_pthread_zero}, {"pthread_cond_init", h_pthread_zero}, {"pthread_cond_wait", h_cond_wait}, {"pthread_cond_timedwait", h_cond_wait}, {"pthread_cond_signal", h_cond_signal}, {"pthread_cond_broadcast", h_cond_signal}, {"pthread_mutexattr_init", h_pthread_zero}, {"pthread_mutexattr_settype", h_pthread_zero}, {"NSSelectorFromString", h_NSSelectorFromString},
     {"strstr", h_strstr}, {"strcasestr", h_strcasestr}, {"strncasecmp", h_strncasecmp}, {"strcasecmp", h_strcasecmp}, {"strncpy", h_strncpy}, {"strcat", h_strcat}, {"strncat", h_strncat}, {"strrchr", h_strrchr}, {"strdup", h_strdup},
     {"memcmp", h_memcmp}, {"memchr", h_memchr}, {"strtol", h_strtol}, {"strtoul", h_strtoul}, {"strtod", h_strtod}, {"atof", h_atof}, {"atol", h_atol}, {"abs", h_abs}, {"labs", h_abs}, {"random", h_random}, {"srandomdev", h_srandomdev},
     {"getpid", h_getpid}, {"sleep", h_sleep}, {"pthread_mutex_init", h_pthread_zero}, {"pthread_mutex_lock", h_pthread_zero}, {"pthread_mutex_unlock", h_pthread_zero}, {"pthread_mutex_destroy", h_pthread_zero},

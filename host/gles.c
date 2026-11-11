@@ -1,3 +1,4 @@
+extern unsigned sdl_fbo_tex(void);
 /* gles.c - OpenGL ES 1.1 (fixed-point) -> desktop OpenGL compatibility profile */
 #include "ra.h"
 #include <SDL2/SDL.h>
@@ -43,8 +44,8 @@ V0(glRotatex, glRotatef(FX(arg(0)), FX(arg(1)), FX(arg(2)), FX(arg(3))))
 V0(glScalex, glScalef(FX(arg(0)), FX(arg(1)), FX(arg(2))))
 V0(glTranslatex, glTranslatef(FX(arg(0)), FX(arg(1)), FX(arg(2))))
 V0(glAlphaFuncx, glAlphaFunc(arg(0), FX(arg(1))))
-V0(glDeleteTextures, glDeleteTextures(arg(0), (const GLuint *)H(arg(1))))
-V0(glGenTextures, glGenTextures(arg(0), (GLuint *)H(arg(1))))
+static void h_glDeleteTextures(void) { int n = arg(0); const GLuint *ids = (const GLuint *)H(arg(1)); for (int i = 0; i < n; i++) { if (ids[i] == sdl_fbo_tex()) { fprintf(stderr, "[gl] guest tried to delete the host render-target texture %u (ignored)\n", ids[i]); continue; } glDeleteTextures(1, &ids[i]); } }
+static void h_glGenTextures(void) { glGenTextures(arg(0), (GLuint *)H(arg(1))); static int n; if (n++ < 6) fprintf(stderr, "[gl] guest genTextures -> %u (host fbo tex %u)\n", ((GLuint *)H(arg(1)))[0], sdl_fbo_tex()); }
 V0(glTexParameterx, glTexParameteri(arg(0), arg(1), arg(2)))
 static void h_glViewport(void) { glViewport(arg(0), arg(1), arg(2), arg(3)); }
 static void h_glScissor(void) { glScissor(arg(0), arg(1), arg(2), arg(3)); }
@@ -135,7 +136,7 @@ static void bind_arrays(int first, int count) {
 }
 static int gl_err_budget = 20;
 static void gl_check(const char *what) { if (!getenv("RA_GLERR") || gl_err_budget <= 0) return; GLenum e = glGetError(); if (e) { gl_err_budget--; GLint fb = 0, vp[4]; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fb); glGetIntegerv(GL_VIEWPORT, vp); fprintf(stderr, "[glerr] %s -> 0x%x (fb=%d status=0x%x viewport %d,%d %dx%d)\n", what, e, fb, (unsigned)glCheckFramebufferStatus(GL_FRAMEBUFFER), vp[0], vp[1], vp[2], vp[3]); } }
-static int dump_budget = 12;
+static int dump_budget = 100000;
 static void gl_dump(int first, int count) {
     if (!getenv("RA_GLDUMP") || dump_budget <= 0) return; dump_budget--; GLfloat mv[16], pj[16]; GLint vp[4], tex = 0; glGetFloatv(GL_MODELVIEW_MATRIX, mv); glGetFloatv(GL_PROJECTION_MATRIX, pj); glGetIntegerv(GL_VIEWPORT, vp); glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex);
     fprintf(stderr, "[gldump] draw first=%d count=%d tex=%d blend=%d tex2d=%d depth=%d viewport=%d,%d,%dx%d\n", first, count, tex, glIsEnabled(GL_BLEND), glIsEnabled(GL_TEXTURE_2D), glIsEnabled(GL_DEPTH_TEST), vp[0], vp[1], vp[2], vp[3]);
@@ -172,7 +173,7 @@ static const HleEntry gl_tab[] = {
 #define E(n) {#n, h_##n}
     E(glActiveTexture), E(glBindTexture), E(glBlendFunc), E(glClear), E(glClearColorx), E(glColor4x), E(glCullFace), E(glDepthFunc), E(glDepthMask), E(glDisable), E(glEnable),
     E(glFrontFace), E(glHint), E(glLoadIdentity), E(glMatrixMode), E(glPopMatrix), E(glPushMatrix), E(glShadeModel), E(glPixelStorei), E(glRotatex), E(glScalex), E(glTranslatex),
-    E(glAlphaFuncx), E(glDeleteTextures), E(glGenTextures), E(glTexParameterx), E(glViewport), E(glScissor), E(glFrustumx), E(glLoadMatrixx), E(glMultMatrixx), E(glTexEnvxv), E(glTexEnvx),
+    E(glAlphaFuncx), {"glDeleteTextures", h_glDeleteTextures}, E(glGenTextures), E(glTexParameterx), E(glViewport), E(glScissor), E(glFrustumx), E(glLoadMatrixx), E(glMultMatrixx), E(glTexEnvxv), E(glTexEnvx),
     E(glMaterialx), E(glMaterialxv), E(glGetError), E(glGetString), E(glGetIntegerv), E(glGenFramebuffersOES), E(glGenRenderbuffersOES), E(glCheckFramebufferStatusOES),
     E(glGetRenderbufferParameterivOES), E(glEnableClientState), E(glDisableClientState), E(glClientActiveTexture), E(glVertexPointer), E(glColorPointer), E(glNormalPointer),
     E(glTexCoordPointer), E(glDrawArrays), E(glDrawElements), E(glTexImage2D), E(glCompressedTexImage2D),

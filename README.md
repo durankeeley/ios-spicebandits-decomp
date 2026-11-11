@@ -10,7 +10,7 @@ It is **not** a source decompilation. The original armv7 Mach-O runs unmodified 
 | Main menu (nib UI, animated) | World map (engine GL + UIKit overlays) |
 | ![shop](docs/screenshots/tech-shop.png) | ![career](docs/screenshots/career.png) |
 | Tech shop (offline profile data) | Career screen with avatar |
-| ![spice](docs/screenshots/spice-shop.png) | |
+| ![spice](docs/screenshots/spice-shop.png) | ![level](docs/screenshots/level.png) |
 | Spice shop (offline StoreKit catalogue) | |
 
 ## Honest status
@@ -22,17 +22,17 @@ It is **not** a source decompilation. The original armv7 Mach-O runs unmodified 
 | Platform layer (this repo's real code) | ~3,100 dense lines of C in `host/`; 0 unimplemented imports hit on the menu/map/shop/career path; ~15 unhandled Objective-C selectors still answered with nil |
 | Boots to main menu | works |
 | Main menu | renders, animations run (UIView animation engine); some nib leftovers hidden |
-| World map | renders with the Training flyout and marker labels; clicking the flyout reaches the level loading screen, which then **never finishes** |
+| World map | renders with the Training flyout and marker labels; clicking the flyout **loads the Training level** |
 | Tech shop | renders item trees from the offline profile; tabs and Done work |
-| Career | layout and avatar match the original; fitting room and medals/friends content not checked |
+| Career | layout and avatar match the original; progress is saved between runs (`defaults.bin`); fitting room and medals/friends not checked |
 | Spice shop | shows the four items with prices (catalogue and prices are guesses; sale badges wrong) |
 | Upgrades yard | not checked |
-| In-level gameplay | not reached yet |
+| In-level gameplay | Training Station renders with its HUD; zoom / tap work. Tower building, waves, win/lose and saving the result are not verified yet |
 | Audio | not implemented (silent) |
 | Network features | stubbed; the game runs on a bundled offline profile |
 | Windows build | not started |
 
-Rough overall estimate: **about a third of the way to a playable game** (menus mostly there, gameplay not). This is a guess, not a measurement.
+Rough overall estimate: **about half way to a playable game** (menus, map and level loading work; actual play and audio are unverified). This is a guess, not a measurement.
 
 Known blockers are tracked in [`docs/PORT_STATUS.md`](docs/PORT_STATUS.md).
 

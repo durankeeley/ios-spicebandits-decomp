@@ -3,19 +3,17 @@
 ## Unimplemented imports (0)
 
 
-## Unhandled ObjC selectors (11) - the host answers nil
+## Unhandled ObjC selectors (9) - the host answers nil
 
 - `-[CAAnimationGroup animation]`
 - `-[CAKeyframeAnimation animationWithKeyPath:]`
 - `-[CAMediaTimingFunction functionWithName:]`
 - `-[EAGLContext sharegroup]`
-- `-[GKLocalPlayer localPlayer]`
 - `-[MPMoviePlayerController setFullscreen:]`
 - `-[MPMoviePlayerController setRepeatMode:]`
-- `-[__NSCFConstantString stringByAddingPercentEscapesUsingEncoding:]`
 - `-[NSNull null]`
+- `-[NSString stringByAddingPercentEscapesUsingEncoding:]`
 - `-[SKPaymentQueue defaultQueue]`
-- `-[UITextField resignFirstResponder]`
 
 ## Faults
 

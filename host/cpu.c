@@ -85,7 +85,10 @@ static int mem_fault(uc_engine *u, uc_mem_type t, uint64_t addr, int size, int64
 }
 
 static u32 blk_ring[1<<20]; static int blk_pos; static int blk_on;
-static void on_block(uc_engine *u, uint64_t addr, uint32_t size, void *ud) { (void)u; (void)size; (void)ud; blk_ring[blk_pos++ & 0xfffff] = (u32)addr; }
+int g_blkcnt_on; static u32 bc_a[1<<16]; static u32 bc_n[1<<16];
+static void on_block(uc_engine *u, uint64_t addr, uint32_t size, void *ud) { (void)u; (void)size; (void)ud;
+    if (g_blkcnt_on) { u32 h = ((u32)addr * 2654435761u) >> 16; while (bc_a[h] && bc_a[h] != (u32)addr) h = (h + 1) & 0xffff; bc_a[h] = (u32)addr; bc_n[h]++; return; } blk_ring[blk_pos++ & 0xfffff] = (u32)addr; }
+void blkcnt_dump(void) { for (int k = 0; k < 3000; k++) { int b = -1; u32 bv = 0; for (int i = 0; i < 65536; i++) if (bc_n[i] > bv) { bv = bc_n[i]; b = i; } if (b < 0) break; fprintf(stderr, "[blkcnt] %08x %u\n", bc_a[b], bv); bc_n[b] = 0; } }
 void dump_blocks(int n) { (void)n; int i = 1; while (i < (1 << 20) && blk_ring[(blk_pos - i) & 0xfffff] >= 0x08000000 && blk_ring[(blk_pos - i) & 0xfffff] < 0x0c000100) i++;   /* skip the run through zeroed memory */
     fprintf(stderr, "[blocks] before the run (oldest first):"); for (int k = i + 40; k >= i; k--) fprintf(stderr, " %x", blk_ring[(blk_pos - k) & 0xfffff]); fprintf(stderr, "\n"); }
 static void on_watch(uc_engine *u, uc_mem_type t, uint64_t addr, int size, int64_t val, void *ud) {
@@ -96,7 +99,31 @@ static void dump_str(const char *tag, u32 a) {
     while (n < 80 && p[n] >= 32 && p[n] < 127) n++;
     if (n >= 3) fprintf(stderr, "   %s -> \"%.*s\"\n", tag, n, p);
 }
+static u32 xw_addr[8]; static int nxw; static uc_engine *engines_dbg[16];
+static void arm_extra_watch(uc_engine *e);
+/* Level-start glue. The engine's loader runs on a pthread; on iOS the thread's completion reaches the main loop through the scene
+ * transition (sub_c64cc(engine, success, multi)).  We capture the engine when its game object is created and, once the loader thread's
+ * done flag (game+0x78) is set, deliver that success notification from the main loop. */
+static u32 g_engine_obj; static int g_level_done;
+static void on_engine_cap(uc_engine *u, uint64_t addr, uint32_t size, void *ud) { (void)u; (void)addr; (void)size; (void)ud; if (!g_engine_obj) g_engine_obj = reg(0); }
+/* Threads are started a few frames after pthread_create (not inside it): the engine's loader reports completion by posting a scene-transition
+ * request, and that request is dropped unless the transition is idle (kind 3) - it is, on a device, because loading takes seconds. */
+void cpu_thread_start_now(gptr fn, u32 arg);
+typedef struct { gptr fn; u32 arg; int due; } PendThr;
+static PendThr pend[16]; static int npend, g_frames;
+void engine_poll(void) {
+    g_frames++;
+    for (int i = 0; i < npend; i++) {
+        if (!pend[i].fn || g_frames < pend[i].due) continue;
+        if (g_engine_obj && g_frames < pend[i].due + 600) { gptr cmd = rd32(g_engine_obj + 0x14); if (cmd && rd32(cmd) != 3) continue; }
+        PendThr t = pend[i]; pend[i].fn = 0; fprintf(stderr, "[thread] starting deferred fn=%08x at frame %d\n", t.fn, g_frames); cpu_thread_start_now(t.fn, t.arg);
+    }
+}
 static void on_break(uc_engine *u, uint64_t addr, uint32_t size, void *ud) {
+    { const char *pk = getenv("RA_POKE");   /* "brkaddr:reg:off:byte" - write a byte at [reg+off] each time brkaddr runs */
+      unsigned long ba; int rg; long of; int v; if (pk && sscanf(pk, "%lx:%d:%lx:%d", &ba, &rg, &of, &v) == 4 && (ba & ~1ul) == addr) { ((unsigned char *)arena)[reg(rg) + of] = (unsigned char)v; fprintf(stderr, "[poke] %08x=%d\n", reg(rg) + of, v); return; } }
+    { const char *wb = getenv("RA_WATCH_BRK");   /* "brkaddr:reg:off" - on the first hit of brkaddr, watch writes to [reg+off] on every engine */
+      unsigned long ba; int rg; long of; static int once; if (!once && wb && sscanf(wb, "%lx:%d:%lx", &ba, &rg, &of) == 3 && (ba & ~1ul) == addr) { once = 1; xw_addr[nxw++] = reg(rg) + of; fprintf(stderr, "[xwatch] %08x\n", xw_addr[0]); for (int i = 0; i < 16; i++) if (engines_dbg[i]) arm_extra_watch(engines_dbg[i]); } }
     (void)u; (void)size; (void)ud;
     fprintf(stderr, "[break %08llx] r0=%08x r1=%08x r2=%08x r3=%08x r4=%08x r5=%08x sp=%08x lr=%08x\n", (unsigned long long)addr,
             reg(0), reg(1), reg(2), reg(3), reg(4), reg(5), reg(13), reg(14));
@@ -117,7 +144,11 @@ static void vfp_enable(void) {
 
 #define MAXDEPTH 16
 static uc_engine *engines[MAXDEPTH]; static int depth;
+static void arm_extra_watch(uc_engine *e) { for (int i = 0; i < nxw; i++) { uc_hook hw; uc_hook_add(e, &hw, getenv("RA_WATCH_READ") ? (UC_HOOK_MEM_WRITE | UC_HOOK_MEM_READ) : UC_HOOK_MEM_WRITE, on_watch, NULL, xw_addr[i], xw_addr[i] + 3); } }
 static void add_debug_hooks(uc_engine *uc) {
+    for (int i = 0; i < 16; i++) if (!engines_dbg[i]) { engines_dbg[i] = uc; break; }
+    arm_extra_watch(uc);
+    { uc_hook hc; uc_hook_add(uc, &hc, UC_HOOK_CODE, on_engine_cap, NULL, 0xf643c, 0xf643c); }
     const char *wt = getenv("RA_WATCH");            /* comma-separated hex addrs: log writes */
     while (wt && *wt) { char *e; unsigned long a = strtoul(wt, &e, 16); if (e == wt) break; uc_hook hw; uc_hook_add(uc, &hw, UC_HOOK_MEM_WRITE, on_watch, NULL, a, a + 3); wt = *e ? e + 1 : e; }
     if (getenv("RA_BLOCKS")) { blk_on = 1; uc_hook hbk; uc_hook_add(uc, &hbk, UC_HOOK_BLOCK, on_block, NULL, 1, 0); }
@@ -148,10 +179,35 @@ void cpu_init(void) {
     for (int i = 1; i < MAXDEPTH; i++) engines[i] = NULL;
 }
 
+/* ---- cooperative threads: a pthread runs on its own stack until it blocks in pthread_cond_wait, then its CPU context is saved;
+ * pthread_cond_signal/broadcast resumes every parked thread (they run to their next block, nested, inside the signaller) ---- */
+typedef struct { uc_context *ctx; int parked, running, alive; gptr stack; } Thr;
+static Thr thr[16]; static int nthr, cur_thr = -1, park_req;
+int cpu_in_thread(void) { return cur_thr >= 0; }
+void host_cpu_stop(void) { if (cur_thr >= 0) park_req = 1; uc_emu_stop(uc); }
+static void thread_go(int ti, gptr fn, u32 arg);
+void cpu_thread_start_now(gptr fn, u32 arg);
+void cpu_thread_start(gptr fn, u32 arg) { if (npend < 16) { pend[npend].fn = fn; pend[npend].arg = arg; pend[npend].due = g_frames + 20; npend++; } }
+void cpu_thread_start_now(gptr fn, u32 arg) {
+    if (nthr >= 16) return; int ti = nthr++; thr[ti].alive = 1; thr[ti].stack = gm_malloc(1 << 19); thread_go(ti, fn, arg); }
+void cpu_thread_wake(void) { for (int i = 0; i < nthr; i++) if (thr[i].alive && thr[i].parked && !thr[i].running) thread_go(i, 0, 0); }
+static void thread_go(int ti, gptr fn, u32 arg) {
+    Thr *t = &thr[ti];
+    if (depth + 1 >= MAXDEPTH) return;
+    uc_engine *prev = uc; int d = depth; if (!engines[d + 1]) engines[d + 1] = make_engine(d + 1);
+    uc_engine *eng = engines[d + 1]; int was_hook = prev_in_hook; gptr saved_next = next_pc_req; int saved_thr = cur_thr;
+    uc = eng; depth++; prev_in_hook = 0; cur_thr = ti; t->running = 1; park_req = 0; u32 start;
+    if (fn) { setreg(0, arg); setreg(13, (t->stack + (1 << 19) - 64) & ~7u); setreg(14, RET_TRAP); start = fn; }
+    else { uc_context_restore(eng, t->ctx); start = reg(15); t->parked = 0; }
+    uc_err e = uc_emu_start(uc, start, RET_TRAP, 0, 0);
+    if (e) fprintf(stderr, "[thread] emu error %s pc=%08x\n", uc_strerror(e), reg(15));
+    if (park_req) { if (!t->ctx) uc_context_alloc(eng, &t->ctx); uc_context_save(eng, t->ctx); t->parked = 1; } else t->alive = 0;
+    park_req = 0; t->running = 0; cur_thr = saved_thr; depth--; uc = prev; prev_in_hook = was_hook; next_pc_req = saved_next; }
+
 /* Call guest code. Re-entrant: a nested call (from inside an HLE handler) runs on a second Unicorn engine that shares the same
  * guest memory, starting below the caller's stack pointer.  `uc` always points at the engine currently executing. */
 u32 call_guest(gptr fn, int nargs, const u32 *args) {
-    if (depth + 1 >= MAXDEPTH) { fprintf(stderr, "[cpu] guest call nesting too deep\n"); return 0; }
+    if (depth + 1 >= MAXDEPTH) { fprintf(stderr, "[cpu] guest call nesting too deep fn=%08x\n", fn); return 0; }
     uc_engine *prev = uc; int d = depth;
     uc_engine *eng = prev;
     u32 sp = reg(13);
