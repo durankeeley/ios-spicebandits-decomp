@@ -66,7 +66,7 @@ void sdl_present(void) {
     { extern void uikit_anim_tick(void); extern void uikit_layout(void); extern void uikit_composite(void); { extern void engine_poll(void); engine_poll(); } uikit_anim_tick(); uikit_layout(); uikit_composite(); }
     { extern int g_blkcnt_on; static int bs = -1; if (bs < 0) bs = getenv("RA_BLKCNT") ? atoi(getenv("RA_BLKCNT")) : 0; if (bs && frame_no >= (unsigned)bs) g_blkcnt_on = 1; }
     if (frame_no == shot_at) { extern void prof_report(void), blkcnt_dump(void); prof_report(); blkcnt_dump(); }
-    if (frame_no == shot_at && shot_path) { extern void uikit_dump(void); if (getenv("RA_UIDUMP")) uikit_dump(); write_ppm(shot_path, ww, wh); fprintf(stderr, "[sdl] screenshot -> %s\n", shot_path); if (getenv("RA_EXIT_AFTER_SHOT")) { fflush(stderr); exit(0); } }
+    if (frame_no == shot_at && shot_path) { extern void uikit_dump(void); if (getenv("RA_UIDUMP")) uikit_dump(); write_ppm(shot_path, ww, wh); { extern unsigned gm_heap_used_mb(void); fprintf(stderr, "[heap] %u MB used\n", gm_heap_used_mb()); } fprintf(stderr, "[sdl] screenshot -> %s\n", shot_path); if (getenv("RA_EXIT_AFTER_SHOT")) { fflush(stderr); exit(0); } }
     SDL_GL_SwapWindow(win); frame_no++; p_bindfb(GL_FRAMEBUFFER, fbo);
     if (getenv("RA_FPS") && frame_no % 100 == 0) { static double t0; double t = SDL_GetTicks() / 1000.0; fprintf(stderr, "[fps] frame %d  %.1f fps (last 100)\n", frame_no, t0 ? 100.0 / (t - t0) : 0.0); t0 = t; }
 }

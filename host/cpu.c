@@ -266,9 +266,10 @@ gptr gm_malloc(size_t n) {
     if (!n) n = 1; int c = cls_of(n);
     gptr p = freel[c];
     if (p) { freel[c] = rd32(p); }
-    else { size_t sz = (size_t)1 << c; if (heap_cur + 16 + sz > HEAP_END) { fprintf(stderr, "guest heap exhausted (req %zu, lr=%08x)\n", n, reg(14)); return 0; } p = heap_cur + 16; heap_cur += 16 + sz; }
+    else { size_t sz = (size_t)1 << c; if (heap_cur + 16 + sz > HEAP_END) { static int warned; if (warned++ < 3) fprintf(stderr, "guest heap exhausted (req %zu, lr=%08x)\n", n, reg(14)); return 0; } p = heap_cur + 16; heap_cur += 16 + sz; }
     wr32(p - 4, c); memset(H(p), 0, (size_t)1 << c); return p;   /* zeroed: ObjC alloc and calloc rely on it */
 }
+unsigned gm_heap_used_mb(void) { return (heap_cur - HEAP_BASE) >> 20; }
 void gm_free(gptr p) { if (p < HEAP_BASE + 16 || p >= heap_cur) return; int c = rd32(p - 4); if (c < 4 || c > 30) return; wr32(p, freel[c]); freel[c] = p; }
 gptr gm_realloc(gptr p, size_t n) { if (p < HEAP_BASE + 16 || p >= heap_cur) return gm_malloc(n); int c = rd32(p - 4); size_t old = (size_t)1 << c; if (n <= old) return p; gptr q = gm_malloc(n); memcpy(H(q), H(p), old); gm_free(p); return q; }
 gptr gm_strdup(const char *s) { size_t n = strlen(s) + 1; gptr p = gm_malloc(n); memcpy(H(p), s, n); return p; }

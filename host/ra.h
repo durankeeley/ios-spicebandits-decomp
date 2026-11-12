@@ -12,14 +12,14 @@ typedef uint32_t u32; typedef int32_t s32; typedef uint64_t u64; typedef int64_t
 typedef uint32_t gptr;                       /* guest pointer */
 
 /* ---- guest memory map ---- */
-#define ARENA_SIZE   0x20000000u             /* 512 MB guest address space, lazily committed */
+#define ARENA_SIZE   0x60000000u             /* 1.5 GB guest address space, lazily committed (the host never frees ObjC objects, so a long session leaks; 224 MB ran out) */
 #define FAKE_BASE    0x08000000u             /* host-created objects, class stubs, data symbols */
 #define FAKE_END     0x0c000000u
 #define TRAP_BASE    0x0c000000u             /* import trampolines (12 bytes each) */
 #define TRAP_END     0x0c100000u
 #define HEAP_BASE    0x10000000u
-#define HEAP_END     0x1e000000u
-#define STACK_TOP    0x1fff0000u
+#define HEAP_END     0x5e000000u
+#define STACK_TOP    0x5fff0000u
 #define STACK_SIZE   0x00800000u
 #define RET_TRAP     (TRAP_END - 16)         /* host->guest call return address */
 
