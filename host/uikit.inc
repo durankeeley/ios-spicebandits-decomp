@@ -436,6 +436,8 @@ static View *hit_test(View *v, float px, float py, Mat inv_parent_unused) {
     for (int i = v->nk - 1; i >= 0; i--) { View *h = hit_test(v->kids[i], cx - v->bw / 2 + v->bw / 2 - 0, cy, (Mat){0}); if (h) return h; }
     /* a clear plain container (no background, not a control) does not swallow touches meant for the view behind it (the GL game view) */
     if (v->kind == 0 && !(v->hasbg && v->bg[3] > 0.01f) && !v->is_gl && v->obj && !strcmp(v_clsname(v->obj), "UIView") && v->parent && v->parent != g_window) return NULL;
+    /* a plain UILabel / UIImageView is not user-interaction-enabled by default: it never swallows a tap meant for the button under it (spice shop 'Get it!') */
+    if ((v->kind == K_LABEL || v->kind == K_IMAGEVIEW) && v->obj && (!strcmp(v_clsname(v->obj), "UILabel") || !strcmp(v_clsname(v->obj), "UIImageView"))) return NULL;
     return v;
 }
 extern int g_touch_phase; extern gptr g_engine_input;

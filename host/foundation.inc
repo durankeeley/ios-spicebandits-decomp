@@ -388,9 +388,9 @@ void sk_deliver(gptr req) {
     gptr del = rd32(req + 8), ids = rd32(req + 4); if (!del) return;
     static const struct { const char *tag; const char *name; double price; } cat[] = { {".t1.", "Spice can", 0.99}, {".t3.", "Spice tin", 2.99}, {".t5.", "Spice box", 4.99}, {".t10.", "Spice canister", 9.99} };
     gptr products = new_array();
-    for (u32 i = 0; ids && i < rd32(ids + 4); i++) { gptr id = array_get(ids, i); const char *ids_s = scstr(id); gptr p = new_obj(objc_class_object("SKProduct")); const char *nm = "Spice"; double pr = 0.99;
+    for (u32 i = 0; ids && i < rd32(ids + 4); i++) { gptr id = array_get(ids, i); const char *ids_s = scstr(id); gptr p = new_obj(objc_class_object("SKProduct")); const char *nm = "Spice"; double pr = 0.99; (void)pr;
         for (int k = 0; k < 4; k++) if (strstr(ids_s, cat[k].tag)) { nm = cat[k].name; pr = cat[k].price; }
-        wr32(p + 4, id); wr32(p + 8, new_string(nm)); wr32(p + 12, new_number_d(pr)); array_add(products, p); }
+        wr32(p + 4, id); wr32(p + 8, new_string(nm)); wr32(p + 12, new_number_d(0.0 /* every pack is free offline */)); array_add(products, p); }
     gptr resp = new_obj(objc_class_object("SKProductsResponse")); wr32(resp + 4, products);
     hle_log("[sk] delivering %u products\n", rd32(products + 4));
     if (guest_responds(del, "productsRequest:didReceiveResponse:")) { u32 a[2] = { req, resp }; send_guest(del, "productsRequest:didReceiveResponse:", 2, a); }

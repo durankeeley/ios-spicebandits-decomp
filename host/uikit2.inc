@@ -97,6 +97,20 @@ gptr offline_room_field(gptr room, gptr key) {
     return 0;
 }
 static void post_notification(const char *name, gptr object, gptr userinfo);
+static double num_double(gptr o); static gptr new_number_d(double d);
+/* Free spice shop: +[InAppItemsHandler buySpice:] gets the product id; grant that pack's spice (and unlock) from userData.tower_inapp and refresh the bars. */
+void offline_buy_spice(gptr pid) {
+    GCls *gc = find_gcls_name("TDSession"); hle_log("[shop] buySpice: %s\n", pid ? (is_string(pid) ? scstr(pid) : objc_describe(pid)) : "(nil)"); if (!gc || !pid) return;
+    gptr pl = send_any(gc->addr, "player", 0, NULL); gptr ud = pl ? send_any(pl, "userData", 0, NULL) : 0; gptr list = ud ? dict_lookup(ud, new_string("tower_inapp")) : 0; if (!list) return;
+    for (u32 i = 0; i < rd32(list + 4); i++) { gptr e = array_get(list, i); gptr id = e ? dict_lookup(e, new_string("inappid")) : 0; if (!id || strcmp(scstr(id), scstr(pid))) continue;
+        gptr sv = dict_lookup(e, new_string("spice")); int add = sv ? (int)(is_string(sv) ? atof(scstr(sv)) : num_double(sv)) : 0; gptr cur = dict_lookup(ud, new_string("spice")); int have = cur ? (int)(is_string(cur) ? atof(scstr(cur)) : num_double(cur)) : 0;
+        char b[16]; snprintf(b, sizeof b, "%d", have + add); dict_put(ud, new_string("spice"), new_string(b));
+        gptr gu = dict_lookup(e, new_string("grantsunlock")); gptr ul = dict_lookup(ud, new_string("unlocks")); if (gu && ul && rd32(ul) && rd32(ul + 4) < 4096) array_add(ul, gu);
+        hle_log("[shop] free spice pack %s: +%d (now %d)\n", scstr(pid), add, have + add);
+        send_guest(pl, "saveUserData", 0, NULL);
+        { gptr nc = send_any(objc_class_object("NSNotificationCenter"), "defaultCenter", 0, NULL); u32 a[2] = { new_string("O5PlayerReceivedUserData"), 0 }; if (nc) send_any(nc, "postNotificationName:object:", 2, a); }
+        return; }
+}
 void offline_post_configs(void);
 /* The server levels the player up ("You will level up when you get online!" otherwise): apply it to the offline profile - level+1, one
  * upgrade point, next threshold 10 xp higher per level (level 1 needs 10) - before the map's player bar is refreshed. */
@@ -107,11 +121,16 @@ void offline_levelup_check(void) {
     #define UDF(k) ({ gptr _v = dict_lookup(ud, new_string(k)); _v ? (is_string(_v) ? atof(scstr(_v)) : num_double(_v)) : 0.0; })
     /* tonextlevel = xp still missing for the next level (negative once the threshold is passed); levelpoints = xp at the start of this level */
     double xp = UDF("xppoints"), lp = UDF("levelpoints"), tn = UDF("tonextlevel"); int lv = (int)UDF("level"), sp = (int)UDF("specpoints"), n = 0;
+    /* Spice is the reward currency offline (the server paid it online): 1 spice per 5 xp earned plus 10 for each level gained, so tech can be bought. */
+    { static double last_xp = -1, carry; double sp_now = UDF("spice");
+      if (last_xp >= 0 && xp > last_xp) { carry += (xp - last_xp) / 5.0; int add = (int)carry; if (add > 0) { carry -= add; char b[16]; snprintf(b, sizeof b, "%d", (int)sp_now + add); dict_put(ud, new_string("spice"), new_string(b)); hle_log("[spice] +%d for xp\n", add); } }
+      last_xp = xp; }
     if (tn > 0) return;
     while (tn <= 0 && n < 50) { lp = xp + tn; lv++; sp++; tn += 10 * lv; n++; }   /* level L needs 10*L xp */
     if (!n) return;
     dict_put(ud, new_string("levelpoints"), new_number_d(lp)); { char b[16]; snprintf(b, sizeof b, "%d", lv); dict_put(ud, new_string("level"), new_string(b)); snprintf(b, sizeof b, "%d", sp); dict_put(ud, new_string("specpoints"), new_string(b)); }
     dict_put(ud, new_string("tonextlevel"), new_number_d(tn));
+    { char b[16]; snprintf(b, sizeof b, "%d", (int)UDF("spice") + 10 * n); dict_put(ud, new_string("spice"), new_string(b)); }
     hle_log("[levelup] now level %d (xp %.1f, %.1f to go)\n", lv, xp, tn);
 }
 /* The online server delivers the per-level configs (settings, grantsunlock, msgwin, ...) in the login response and -[TDPlayer processResponse:] posts

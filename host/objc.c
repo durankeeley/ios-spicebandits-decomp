@@ -97,6 +97,7 @@ static int sdk_stubbed(const char *n) {
     static const char *pre[] = {"Tapjoy", "TJC", "Flurry", "Burstly", "GAD", "MM", "IM", "Greystripe", "OAI", "FB", "CFB", "Facebook", "MGTwitter", "Twitter", "FullScreenAdViewController", "AdServe", "AdManager", "CC", "Crystal", NULL};
     for (int i = 0; pre[i]; i++) if (!strncmp(n, pre[i], strlen(pre[i]))) return 1; return 0;
 }
+u32 send_guest(gptr recv, const char *sel, int nargs, const u32 *args);
 static Target lookup(gptr recv, const char *sel, int use_super_of, gptr start_cls) {
     Target t = {0, 0, "NSObject"}; const char *leaf = NULL;
     gptr cls; int cmeth;
@@ -137,6 +138,11 @@ static void do_send(gptr recv, const char *sel, int stret, gptr start_cls, int u
         static int no_tut = -1; if (no_tut < 0) no_tut = getenv("RA_NO_TUTORIAL") != NULL;   /* test aid: skip the first-run tutorial overlays */
         if (no_tut && !strncmp(sel, "showTutorial:", 13)) { ret(0); return; }
         if (!strcmp(sel, "updateUserInfo:")) { extern void offline_levelup_check(void); offline_levelup_check(); }
+        /* the spice shop needs the product catalogue; the game only requests it from a menu path the saved-profile flow never takes */
+        /* (viewDidLoad itself is sent by the host nib loader, so hook the first message it makes) */
+        if (!strcmp(sel, "offlineModeWarningLabel")) { GCls *sg = find_gcls(rd32(recv)); if (sg && !strcmp(sg->name, "SpiceShopViewController")) { GCls *ih = find_gcls_name("InAppItemsHandler"); gptr h = ih ? send_guest(ih->addr, "sharedHandler", 0, NULL) : 0; if (h) send_guest(h, "requestProductData", 0, NULL); } }
+        /* offline there is no App Store: every spice pack is free - grant it instead of starting a payment */
+        if (!strcmp(sel, "buySpice:")) { extern void offline_buy_spice(gptr); offline_buy_spice(arg(2)); ret(0); return; }
         /* always start on the main menu: dissolveSplash jumps straight to the map while the welcome tutorial is pending */
         if (!strcmp(sel, "canShowTutorial:") && arg(2) == 2 && reg(14) >= 0x1d430 && reg(14) < 0x1d760) { ret(0); return; }
         /* no publisher / studio splash: go straight to the game */
