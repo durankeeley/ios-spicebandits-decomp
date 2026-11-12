@@ -84,6 +84,8 @@ const char *objc_describe(gptr o) {
     if (o < 0x1000 || o >= ARENA_SIZE - 16) { snprintf(b, 256, "<bad %%@ arg 0x%x>", o); return b; }
     if (is_string(o)) return scstr(o);
     gptr c = rd32(o); GCls *g = find_gcls(c);
+    if (c && c == cls_NSNumber) { u32 k = rd32(o + 4); double d; if (k == 2) memcpy(&d, H(o + 8), 8); else if (k == 1) d = (double)*(u64 *)H(o + 8); else d = (double)(s32)rd32(o + 8);   /* %@ of an NSNumber prints its value */
+        if (d == (double)(long long)d) snprintf(b, 256, "%lld", (long long)d); else snprintf(b, 256, "%g", d); return b; }
     snprintf(b, 256, "<%s: 0x%x>", g ? g->name : is_fake_class(c) ? fake_name(c) : "?", o); return b;
 }
 

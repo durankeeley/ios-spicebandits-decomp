@@ -140,6 +140,7 @@ static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int
     if (is_cls_named(cls, "Dictionary")) {
         if (is_cls) {
             if (FS("dictionary") || FS("dictionaryWithCapacity:")) { ret(new_dict()); return 1; }
+            if (FS("dictionaryWithObject:forKey:")) { gptr d = new_dict(); if (UA(2) && UA(3)) dict_put(d, UA(3), UA(2)); ret(d); return 1; }   /* ShopItemView -> ShopViewController selection travels in this userInfo */
             if (FS("dictionaryWithObjectsAndKeys:")) { gptr d = new_dict(); for (int i = 2; i < 60; i += 2) { gptr v = arg(i), k = arg(i + 1); if (!v || !k) break; dict_put(d, k, v); } ret(d); return 1; }
             if (FS("dictionaryWithObjects:forKeys:")) { gptr d = new_dict(), vs = UA(2), ks = UA(3); for (u32 i = 0; vs && ks && i < rd32(ks + 4); i++) dict_put(d, array_get(ks, i), array_get(vs, i)); ret(d); return 1; }
             if (FS("dictionaryWithDictionary:")) { gptr d = new_dict(), s = UA(2); for (u32 i = 0; s && i < rd32(s + 4); i++) dict_put(d, rd32(rd32(s + 8) + 4 * i), rd32(rd32(s + 12) + 4 * i)); ret(d); return 1; }

@@ -275,7 +275,7 @@ static void fix_portrait(View *v) {
     /* a page whose backdrop overhangs by 128 px on both sides is a 768-wide page centred in the landscape window */
     { float fx, fy, fw, fh; v_frame(v, &fx, &fy, &fw, &fh); if (v->parent && fabsf(fx) < 1 && fabsf(fw - 1024) < 1 && fabsf(v->parent->bw - 1024) < 1 && v->nk <= 6) for (int i = 0; i < v->nk; i++) { float kx, ky, kw, kh; v_frame(v->kids[i], &kx, &ky, &kw, &kh); if (fabsf(kx + 128) < 1 && fabsf(kw - 1024) < 1 && v->kids[i]->kind == K_IMAGEVIEW) { v->bw = 768; v->cx = 128 + 384; break; } } }
     /* bottom-anchored in the 1024-high portrait nib (e.g. the balance/upgrades/rank bar): pull it up to the landscape bottom edge */
-    { float fx, fy, fw, fh; v_frame(v, &fx, &fy, &fw, &fh); if (v->parent && v->parent->bw > v->parent->bh && fabsf(v->parent->bh - 768) < 1 && fw <= 780 && fabsf(fy + fh - 1024) < 1.5f && fh < 200) v_set_frame(v, fx, v->parent->bh - fh, fw, fh); }
+    { float fx, fy, fw, fh; v_frame(v, &fx, &fy, &fw, &fh); if (v->parent && v->parent->bw >= v->parent->bh && fabsf(v->parent->bh - 768) < 1 && fw <= 780 && fabsf(fy + fh - 1024) < 1.5f && fh < 200) v_set_frame(v, fx, v->parent->bh - fh, fw, fh); }
     for (int i = 0; i < v->nk; i++) fix_portrait(v->kids[i]);
 }
 void uikit_layout(void) { if (g_window && !g_in_layout) { fix_gl_chain(g_window); fix_portrait(g_window); layout_tree(g_window, 0); } }
@@ -298,8 +298,8 @@ typedef struct { int key; int type; union { int64_t i; double f; struct { const 
 typedef struct { int cls, first, n; } NObj;
 typedef struct { uint8_t *data; NObj *objs; int nobj; NV *vals; int nval; char **keys; int nkeys; char **cls; int ncls; gptr *made; gptr owner; } Nib;
 static uint32_t nib_varint(const uint8_t *d, size_t *o) { uint32_t r = 0; int sh = 0; for (;;) { uint8_t b = d[(*o)++]; r |= (uint32_t)(b & 0x7f) << sh; sh += 7; if (b & 0x80) return r; } }
-static Nib *nib_reg[256]; static int nnib_reg;
-static u32 nib_id(Nib *nb) { for (int i = 0; i < nnib_reg; i++) if (nib_reg[i] == nb) return i + 1; if (nnib_reg < 256) { nib_reg[nnib_reg] = nb; return ++nnib_reg; } return 0; }
+static Nib *nib_reg[16384]; static int nnib_reg;   /* one entry per nib load; the Upgrades yard alone loads 31 (the old 256 ran out after ~4 flips between it and the tech shop -> blank page) */
+static u32 nib_id(Nib *nb) { for (int i = 0; i < nnib_reg; i++) if (nib_reg[i] == nb) return i + 1; if (nnib_reg < 16384) { nib_reg[nnib_reg] = nb; return ++nnib_reg; } return 0; }
 static Nib *nib_by_id(u32 id) { return id && id <= (u32)nnib_reg ? nib_reg[id - 1] : NULL; }
 static Nib *nib_parse(const char *path) {
     FILE *f = fopen(path, "rb"); if (!f) return NULL; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); uint8_t *d = malloc(n); if (fread(d, 1, n, f) != (size_t)n) { fclose(f); return NULL; } fclose(f);
@@ -349,8 +349,8 @@ static void nib_apply_view(Nib *nb, int idx, gptr obj) {
 }
 static const char *view_family(const char *c) { static const char *f[] = {"UIView", "UIImageView", "UILabel", "UIButton", "UIRoundedRectButton", "UIScrollView", "UIActivityIndicatorView", "UITextField", "UIWindow", "UIControl", NULL}; for (int i = 0; f[i]; i++) if (!strcmp(c, f[i])) return f[i]; return NULL; }
 typedef struct { gptr vc; char nib[96]; gptr view; int loaded; int loading; } VcState;
-static VcState vcs[64]; static int nvcs;
-static VcState *vc_of(gptr o) { for (int i = 0; i < nvcs; i++) if (vcs[i].vc == o) return &vcs[i]; if (nvcs >= 64) return NULL; vcs[nvcs].vc = o; return &vcs[nvcs++]; }
+static VcState vcs[16384]; static int nvcs;   /* one per view controller ever created: the Upgrades yard makes ~31 per visit and the tech shop more, so 64 ran out after 3 flips -> blank page */
+static VcState *vc_of(gptr o) { for (int i = nvcs - 1; i >= 0; i--) if (vcs[i].vc == o) return &vcs[i]; if (nvcs >= 16384) return NULL; vcs[nvcs].vc = o; return &vcs[nvcs++]; }
 
 static gptr nib_make(Nib *nb, int idx) {
     if (idx < 0 || idx >= nb->nobj) return 0; if (nb->made[idx]) return nb->made[idx];

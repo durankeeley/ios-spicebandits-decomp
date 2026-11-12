@@ -10,7 +10,7 @@
 - `-[CAMediaTimingFunction functionWithName:]`
 - `-[EAGLContext sharegroup]`
 - `-[GKLocalPlayer localPlayer]`
-- `-[NSDictionary dictionaryWithObject:forKey:]`
+- `-[NSNull null]`
 - `-[NSString stringByAddingPercentEscapesUsingEncoding:]`
 - `-[SKPaymentQueue defaultQueue]`
 - `-[UITextField resignFirstResponder]`
