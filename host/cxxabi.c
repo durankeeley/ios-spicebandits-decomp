@@ -8,7 +8,7 @@ static gptr s_empty;
 static gptr empty_rep(void) { if (!s_empty) s_empty = resolve_symbol("__ZNSs4_Rep20_S_empty_rep_storageE") + 12; return s_empty; }   /* chars of the shared empty rep */
 static u32 slen(gptr p) { return rd32(p - 12); }
 static gptr rep_new(u32 len, u32 cap) { if (cap < len) cap = len; gptr r = gm_malloc(12 + cap + 1); wr32(r, len); wr32(r + 4, cap); wr32(r + 8, 0); *(char *)H(r + 12 + len) = 0; return r + 12; }
-static void rep_release(gptr p) { if (p == empty_rep()) return; s32 rc = (s32)rd32(p - 4); if (rc <= 0) gm_free(p - 12); else wr32(p - 4, rc - 1); }
+static void rep_release(gptr p) { if (!p || p == empty_rep()) return; s32 rc = (s32)rd32(p - 4); if (rc <= 0) gm_free(p - 12); else wr32(p - 4, rc - 1); }
 static gptr rep_from(const char *s, u32 n) { if (!n) return empty_rep(); gptr p = rep_new(n, n); memcpy(H(p), s, n); return p; }
 static void set_str(gptr obj, gptr p) { wr32(obj, p); }
 /* make *obj uniquely owned with capacity >= want, keeping content */
