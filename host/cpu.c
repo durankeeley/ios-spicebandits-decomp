@@ -61,6 +61,7 @@ void prof_report(void) { if (!g_prof) return; double tot = 0; u64 cnt = 0; for (
 static void on_intr(uc_engine *u, uint32_t intno, void *ud) {
     (void)u; (void)ud;
     u32 idx = reg(12);
+    { static unsigned n; if ((++n & 1023) == 0) { extern void sdl_keepalive(void); sdl_keepalive(); } }   /* long guest runs (texture conversion, JSON) must not freeze the window: pump events now and then */
     if (idx == 0xFFFF) { uc_emu_stop(uc); return; }
     if (idx >= (u32)nstub) { fprintf(stderr, "bad trap idx %u (intno %u pc=%08x)\n", idx, intno, reg(15)); uc_emu_stop(uc); return; }
     int slot = cur_stub_hle[idx];
@@ -156,9 +157,16 @@ static void vfp_enable(void) {
 #define MAXDEPTH 16
 static uc_engine *engines[MAXDEPTH]; static int depth;
 static void arm_extra_watch(uc_engine *e) { for (int i = 0; i < nxw; i++) { uc_hook hw; uc_hook_add(e, &hw, getenv("RA_WATCH_READ") ? (UC_HOOK_MEM_WRITE | UC_HOOK_MEM_READ) : UC_HOOK_MEM_WRITE, on_watch, NULL, xw_addr[i], xw_addr[i] + 3); } }
+/* sub_8c238 scans an id string for its first digit with no bound ("tut" has none): it relies on stray digits in the heap beyond the string, which
+ * a zeroed arena never has, so it walked ~300 MB (70 s at start-up). Past the end of the string, take the path it takes when the digit is found there. */
+static void on_digit_scan(uc_engine *u, uint64_t addr, uint32_t size, void *ud) {
+    (void)u; (void)addr; (void)size; (void)ud;
+    u32 s = reg(0), i = reg(2); if (s > 16 && s < ARENA_SIZE && i >= rd32(s - 12)) { u32 pc = 0x8c2f6 | 1; uc_reg_write(u, UC_ARM_REG_PC, &pc); }
+}
 static void add_debug_hooks(uc_engine *uc) {
     for (int i = 0; i < 16; i++) if (!engines_dbg[i]) { engines_dbg[i] = uc; break; }
     arm_extra_watch(uc);
+    { uc_hook hd; uc_hook_add(uc, &hd, UC_HOOK_CODE, on_digit_scan, NULL, 0x8c2e0, 0x8c2e0); }
     { uc_hook hc; uc_hook_add(uc, &hc, UC_HOOK_CODE, on_engine_cap, NULL, 0xf643c, 0xf643c); }
     const char *wt = getenv("RA_WATCH");            /* comma-separated hex addrs: log writes */
     while (wt && *wt) { char *e; unsigned long a = strtoul(wt, &e, 16); if (e == wt) break; uc_hook hw; uc_hook_add(uc, &hw, UC_HOOK_MEM_WRITE, on_watch, NULL, a, a + 3); wt = *e ? e + 1 : e; }
@@ -210,12 +218,16 @@ static void thread_slice(int ti, int us) {
     u32 start;
     if (!t->started) { t->started = 1; setreg(0, t->arg); setreg(13, (t->stack + (1 << 19) - 64) & ~7u); setreg(14, RET_TRAP); start = t->fn; }
     else { u32 cpsr = 0; start = reg(15); uc_reg_read(uc, UC_ARM_REG_CPSR, &cpsr); start = (start & ~1u) | ((cpsr >> 5) & 1); }
-    uc_err e = uc_emu_start(uc, start, RET_TRAP, (uint64_t)us * 1000, 0);
+    uc_err e = uc_emu_start(uc, start, RET_TRAP, (uint64_t)us, 0);   /* unicorn timeout is in microseconds (was x1000: a 14 s freeze per frame during loading) */
+    if (getenv("RA_THRPC") && g_frames % atoi(getenv("RA_THRPC")) == 0) fprintf(stderr, "[thrpc] thr %d frame %d pc=%08x lr=%08x sp=%08x r0=%08x r2=%08x len=%u str=%.8s\n", ti, g_frames, reg(15), reg(14), reg(13), reg(0), reg(2), reg(0) > 16 && reg(0) < ARENA_SIZE ? rd32(reg(0) - 12) : 0, reg(0) > 16 && reg(0) < ARENA_SIZE ? (char *)&arena[reg(0)] : ""); if (getenv("RA_THRPC") && g_frames == 700) for (int k = 0; k < 160; k++) { u32 w = rd32(reg(13) + k * 4); if (w >= 0x4000 && w < 0x300000 && (w & 1)) fprintf(stderr, "[thrstk] +%x %08x\n", k * 4, w); }
     if (e) { fprintf(stderr, "[thread] emu error %s pc=%08x\n", uc_strerror(e), reg(15)); t->alive = 0; }
-    else if (park_req) { if (!t->ctx) uc_context_alloc(uc, &t->ctx); uc_context_save(uc, t->ctx); t->parked = 1; t->sliced = 0; }
-    else if ((reg(15) & ~1u) == (RET_TRAP & ~1u)) t->alive = 0;
+    else if (park_req) { if (!t->ctx) uc_context_alloc(uc, &t->ctx); uc_context_save(uc, t->ctx); t->parked = 1; t->sliced = 0; fprintf(stderr, "[thread] %d parked at frame %d pc=%08x lr=%08x\n", ti, g_frames, reg(15), reg(14)); }
+    else if ((reg(15) & ~1u) == (RET_TRAP & ~1u)) { t->alive = 0; fprintf(stderr, "[thread] %d finished at frame %d\n", ti, g_frames); }
     park_req = 0; t->running = 0; cur_thr = saved_thr; depth--; uc = prev; prev_in_hook = was_hook; next_pc_req = saved_next; }
-void cpu_thread_pump(void) { int us = getenv("RA_NOVSYNC") ? 150000 : 14000; for (int i = 0; i < nthr; i++) if (thr[i].sliced) thread_slice(i, us); }
+void cpu_thread_pump(void) {
+    /* A loader thread runs until it parks or finishes: preempting it mid-load (time slices) leaves the level half built (white terrain). The 5 s cap is only a safety valve. */
+    for (int i = 0; i < nthr; i++) if (thr[i].sliced) thread_slice(i, getenv("RA_SLICE_US") ? atoi(getenv("RA_SLICE_US")) : 5000000);
+}
 static void thread_go(int ti, gptr fn, u32 arg) {
     Thr *t = &thr[ti];
     if (fn) { t->eng = make_engine(50 + ti); t->fn = fn; t->arg = arg; t->sliced = 1; t->started = 0; thread_slice(ti, getenv("RA_NOVSYNC") ? 150000 : 14000); return; }

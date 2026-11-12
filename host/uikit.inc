@@ -251,6 +251,7 @@ static void dump_view(View *v, int d) {
     float x, y, w, h; v_frame(v, &x, &y, &w, &h);
     fprintf(stderr, "%*s%s kind=%d (%.0f,%.0f %.0fx%.0f) a=%.2f%s%s%s tag=%d kids=%d%s%s m=%d%s\n", d * 2, "", v_clsname(v->obj), v->kind, x, y, w, h, v->alpha, v->hidden ? " HIDDEN" : "", v->is_gl ? " GL" : "", v->hasbg ? " bg" : "", v->tag, v->nk,
             v->kind == K_IMAGEVIEW && v->image ? " img" : "", v->text ? " text" : "", v->mask, v->noautosub ? " NOAUTOSUB" : "");
+    if (v->kind == K_SCROLL) fprintf(stderr, "%*s   scroll off=(%.0f,%.0f) content=%.0fx%.0f\n", d * 2, "", v->sx, v->sy, v->cw, v->ch);
     if (getenv("RA_UIDUMP_TEXT")) { if (v->text) fprintf(stderr, "%*s   text=\"%.60s\"\n", d * 2, "", v->text); if (v->kind == K_IMAGEVIEW && v->image && img_of(v->image)) fprintf(stderr, "%*s   image=%s\n", d * 2, "", img_of(v->image)->name); }
     for (int i = 0; i < v->nk && d < 14; i++) dump_view(v->kids[i], d + 1);
 }
@@ -446,8 +447,28 @@ static void fire_actions(View *v, int ev) {
     for (int i = 0; i < v->nact; i++) if (v->act[i].ev & ev) { hle_log("[ui] action %s -> %s\n", v->act[i].sel, objc_describe(v->act[i].target)); u32 a[1] = { v->obj }; Target t = lookup(v->act[i].target, v->act[i].sel, 0, 0); if (t.imp) send_guest(v->act[i].target, v->act[i].sel, 1, a); else hle_log("[ui] action %s has no guest implementation\n", v->act[i].sel); }
 }
 static View *button_ancestor(View *v) { for (; v; v = v->parent) if (v->kind == K_BUTTON) return v; return NULL; }
+/* drag-scrolling of UIScrollView (tech shop, upgrade yard): a drag past 8 points pans the nearest scroll ancestor and cancels the tap */
+static View *g_scroll; static float g_sc_x0, g_sc_y0, g_sc_sx0, g_sc_sy0; static int g_sc_drag;
+static void scroll_clamp(View *s) {
+    float cw = s->cw, ch = s->ch;
+    if (ch <= 0 || cw <= 0) for (int i = 0; i < s->nk; i++) { View *k = s->kids[i]; float r = k->cx + k->bw / 2, b = k->cy + k->bh / 2; if (r > cw) cw = r; if (b > ch) ch = b; }
+    float mx = cw - s->bw, my = ch - s->bh; if (mx < 0) mx = 0; if (my < 0) my = 0;
+    if (s->sx > mx) s->sx = mx; if (s->sx < 0) s->sx = 0; if (s->sy > my) s->sy = my; if (s->sy < 0) s->sy = 0;
+}
+void uikit_wheel(int x, int y, float dy) {
+    if (!g_window) return; View *h = NULL; for (int i = g_window->nk - 1; i >= 0 && !h; i--) h = hit_test(g_window->kids[i], (float)x, (float)y, (Mat){0});
+    for (; h && h->kind != K_SCROLL; h = h->parent) {}
+    if (h) { h->sy -= dy * 40; scroll_clamp(h); }
+}
 void uikit_touch(int phase, int x, int y) {          /* phase 0 down, 1 move, 2 up; x,y in screen points */
     if (!g_window) return;
+    if (phase == 0) { g_scroll = NULL; g_sc_drag = 0; View *h = NULL; for (int i = g_window->nk - 1; i >= 0 && !h; i--) h = hit_test(g_window->kids[i], (float)x, (float)y, (Mat){0});
+        for (; h && h->kind != K_SCROLL; h = h->parent) {} if (h) { g_scroll = h; g_sc_x0 = x; g_sc_y0 = y; g_sc_sx0 = h->sx; g_sc_sy0 = h->sy; } }
+    else if (g_scroll) {
+        if (phase == 1 && !g_sc_drag && (fabsf(x - g_sc_x0) > 8 || fabsf(y - g_sc_y0) > 8)) { g_sc_drag = 1; if (g_touch_view) { for (View *b = g_touch_view; b; b = b->parent) b->highlighted = 0; g_touch_view = NULL; } }
+        if (g_sc_drag) { g_scroll->sx = g_sc_sx0 - (x - g_sc_x0); g_scroll->sy = g_sc_sy0 - (y - g_sc_y0); scroll_clamp(g_scroll); if (phase == 2) { g_scroll = NULL; g_sc_drag = 0; } return; }
+        if (phase == 2) g_scroll = NULL;
+    }
     if (phase == 0) { View *h = NULL; for (int i = g_window->nk - 1; i >= 0 && !h; i--) h = hit_test(g_window->kids[i], (float)x, (float)y, (Mat){0}); g_touch_view = h;
         hle_log("[ui] touch down at (%d,%d) -> %s%s tag=%d\n", x, y, h ? v_clsname(h->obj) : "none", h && h->is_gl ? " [GL]" : "", h ? h->tag : 0);
         View *b = button_ancestor(h); if (b && !b->disabled) { b->highlighted = 1; g_touch_view = b; } }

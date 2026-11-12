@@ -132,7 +132,7 @@ static void h_abs(void) { int v = (int)arg(0); ret((u32)(v < 0 ? -v : v)); }
 static void h_random(void) { ret((u32)random()); }
 static void h_srandomdev(void) { srandom(time(NULL)); }
 static void h_getpid(void) { ret(1234); }
-static void h_sleep(void) { sleep(arg(0)); ret(0); }
+static void h_sleep(void) { if (getenv("RA_STALL")) fprintf(stderr, "[sleep] %u s\n", arg(0)); sleep(arg(0)); ret(0); }
 static void h_pthread_zero(void) { ret(0); }
 static void h_fputs(void) { FILE *f = getf_fwd(arg(1)); if (f) fputs(gstr(arg(0)), f); ret(1); }
 static void h_unlink(void) { ret((u32)unlink(host_path(gstr(arg(0))))); }
@@ -208,7 +208,7 @@ static void h_mach_timebase_info(void) { if (arg(0)) { wr32(arg(0), 1); wr32(arg
 static void h_mach_wait_until(void) { u64 t = arg64(0), n = mono_ns(); if (t > n) { struct timespec d = { (time_t)((t - n) / 1000000000ull), (long)((t - n) % 1000000000ull) }; nanosleep(&d, NULL); } ret(0); }
 static void h_floatundidf(void) { double v = (double)arg64(0); u64 b; memcpy(&b, &v, 8); ret64(b); }
 static void h_fixunsdfdi(void) { u64 b = arg64(0); double v; memcpy(&v, &b, 8); ret64(v <= 0 ? 0 : (u64)v); }
-static void h_usleep(void) { usleep(arg(0)); ret(0); }
+static void h_usleep(void) { if (getenv("RA_STALL") && arg(0) > 50000) fprintf(stderr, "[usleep] %u us\n", arg(0)); usleep(arg(0)); ret(0); }
 static void h_arc4random(void) { ret(((u32)rand() << 16) ^ (u32)rand()); }
 static void h_error(void) { ret(g_errno_addr); }
 static void h_getenv(void) { ret(0); }

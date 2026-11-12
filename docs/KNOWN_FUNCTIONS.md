@@ -45,6 +45,7 @@ Conventions: `game` = the engine game object created by `sub_f643c` (size 0x500,
 ## Pause menu, tutorial script, config table
 | address | name / role | notes |
 |---|---|---|
+| `0x8c238` | helper: find first digit in an id std::string (`"tut"`...) | unbounded `while(!isdigit(s[i])) i++`, exits via `cmp i,len`; needs the host hook at `0x8c2e0` (see PORT_STATUS) |
 | `0xf5970` | engine constructor (`-[EAGLView .cxx_construct]` via `f5960`) | allocates the message-box manager (`0xa99bc`) into `[0x47ecdc]`, inits engine fields; `f5afc` is the matching destructor |
 | `0xa9af4` / `0xa9bf8` | add a modal message box to the manager / manager update+draw | drawn from `f6eb0` at `f7c5c` while `[[0x40a234]]` is non-null |
 | `0xad24c` | pause menu touch handler `(menu, x, y, ..., down)` | called by `c9768` at touch begin and end; tests each button rect with `110c50`; shows `"Do you want to abandon the current game?"` (engine-drawn dialog, texts via `drawInRect:`) for Replay / To the map |

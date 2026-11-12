@@ -1,3 +1,4 @@
+#include <time.h>
 /* sdl.c - window, GL context, input (mouse -> touch) */
 #include "ra.h"
 #include <SDL2/SDL.h>
@@ -121,7 +122,13 @@ static void scripted_drag(void) {   /* RA_DRAG="f:x0:y0:x1:y1[,f:...]" */
         else if (frame_no > f[d] && frame_no <= f[d] + 24) { int k = frame_no - f[d]; to_guest(x0[d] + (x1[d] - x0[d]) * k / 24, y0[d] + (y1[d] - y0[d]) * k / 24, &gx, &gy); objc_post_touch(1, gx, gy); if (k == 24) objc_post_touch(2, gx, gy); }
     }
 }
+/* called from the CPU's HLE entry: keeps the window manager happy ('not responding') during long guest calls; events stay queued for sdl_pump */
+void sdl_keepalive(void) {
+    static double last; struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); double t = ts.tv_sec + ts.tv_nsec * 1e-9;
+    if (t - last < 0.05) return; last = t; SDL_PumpEvents();
+}
 int sdl_pump(void) {
+    { static double last; struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); double t = ts.tv_sec + ts.tv_nsec * 1e-9; if (last && t - last > 0.25 && getenv("RA_STALL")) fprintf(stderr, "[stall] %.0f ms between event pumps at frame %d\n", (t - last) * 1000, frame_no); last = t; }
     scripted_clicks(); scripted_drag();
     if (up_pending && frame_no >= up_frame) { up_pending = 0; objc_post_touch(2, up_x, up_y); }
     SDL_Event e; int gx, gy;
@@ -133,6 +140,7 @@ int sdl_pump(void) {
             if (e.key.keysym.sym == SDLK_F11) SDL_SetWindowFullscreen(win, (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
             break;
         case SDL_MOUSEBUTTONDOWN: if (e.button.button == SDL_BUTTON_LEFT) { if (up_pending) { up_pending = 0; objc_post_touch(2, up_x, up_y); } down_frame = frame_no; mouse_down = 1; to_guest(e.button.x, e.button.y, &gx, &gy); objc_post_touch(0, gx, gy); } break;
+        case SDL_MOUSEWHEEL: { int mx, my; SDL_GetMouseState(&mx, &my); to_guest(mx, my, &gx, &gy); extern void uikit_wheel(int, int, float); uikit_wheel(gx, gy, (float)e.wheel.y); } break;
         case SDL_MOUSEMOTION: if (mouse_down && !up_pending) { to_guest(e.motion.x, e.motion.y, &gx, &gy); objc_post_touch(1, gx, gy); } break;
         case SDL_MOUSEBUTTONUP: if (e.button.button == SDL_BUTTON_LEFT && mouse_down) { mouse_down = 0; to_guest(e.button.x, e.button.y, &gx, &gy); up_pending = 1; up_x = gx; up_y = gy; up_frame = down_frame + 4; } break;
         }
