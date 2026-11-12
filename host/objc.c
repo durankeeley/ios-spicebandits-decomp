@@ -63,18 +63,27 @@ static gptr find_in_methods(gptr list, const char *sel) {
 
 /* ---------- host objects ---------- */
 static gptr cls_NSString, cls_NSMutableString, cls_NSNumber, cls_NSArray, cls_NSMutableArray, cls_NSDictionary, cls_NSData, cls_NSSet, cls_URL, cls_cfstr, cls_Touch, cls_Event, cls_Generic;
-static gptr new_obj(gptr cls) { gptr o = gm_malloc(16); wr32(o, cls); return o; }
-static gptr new_string(const char *s) { gptr o = new_obj(cls_NSString); wr32(o + 4, 0x7C8); wr32(o + 8, gm_strdup(s)); wr32(o + 12, strlen(s)); return o; }
+/* Collectable Foundation value objects (see the GC in cpu.c): kind 1 string, 2 number, 3 array/set, 4 dictionary */
+void gm_gc_tag(gptr o, int kind); void gm_gc_own(gptr buf, gptr owner); void gm_gc_pin(gptr o);
+static int gc_kind(gptr cls) {
+    static gptr tab[9]; static int init; static const char *nm[9] = {"NSString", "NSMutableString", "NSNumber", "NSArray", "NSMutableArray", "NSSet", "NSMutableSet", "NSDictionary", "NSMutableDictionary"};
+    static const int kd[9] = {1, 1, 2, 3, 3, 3, 3, 4, 4};
+    if (!init) { for (int i = 0; i < 9; i++) tab[i] = objc_class_object(nm[i]); init = 1; }
+    for (int i = 0; i < 9; i++) if (tab[i] == cls) return kd[i];
+    return 0;
+}
+static gptr new_obj(gptr cls) { gptr o = gm_malloc(16); wr32(o, cls); { int k = gc_kind(cls); if (k) gm_gc_tag(o, k); } return o; }
+static gptr new_string(const char *s) { gptr o = new_obj(cls_NSString); wr32(o + 4, 0x7C8); wr32(o + 8, gm_strdup(s)); gm_gc_own(rd32(o + 8), o); wr32(o + 12, strlen(s)); return o; }
 gptr objc_make_nsstring_global(const char *s) { if (!cls_NSString) cls_NSString = objc_class_object("NSString"); return new_string(s); }
 static int is_string(gptr o) { if (!o || o >= ARENA_SIZE - 16) return 0; gptr c = rd32(o); return c == cls_NSString || c == cls_NSMutableString || c == cls_cfstr; }
 static const char *scstr(gptr o) { return is_string(o) ? gstr(rd32(o + 8)) : ""; }
-static void set_string(gptr o, const char *s) { wr32(o + 8, gm_strdup(s)); wr32(o + 12, strlen(s)); }
+static void set_string(gptr o, const char *s) { wr32(o + 8, gm_strdup(s)); gm_gc_own(rd32(o + 8), o); wr32(o + 12, strlen(s)); }
 static gptr new_number_i(s32 v) { gptr o = new_obj(cls_NSNumber); wr32(o + 4, 0); wr32(o + 8, v); return o; }
 static gptr new_number_u64(u64 v) { gptr o = new_obj(cls_NSNumber); wr32(o + 4, 1); *(u64 *)H(o + 8) = v; return o; }
-static gptr new_array(void) { gptr o = new_obj(cls_NSMutableArray); wr32(o + 4, 0); wr32(o + 8, gm_malloc(256)); wr32(o + 12, 64); return o; }
+static gptr new_array(void) { gptr o = new_obj(cls_NSMutableArray); wr32(o + 4, 0); wr32(o + 8, gm_malloc(256)); gm_gc_own(rd32(o + 8), o); wr32(o + 12, 64); return o; }
 static void array_add(gptr a, gptr x) { u32 n = rd32(a + 4), cap = rd32(a + 12); if (n >= cap) { wr32(a + 8, gm_realloc(rd32(a + 8), cap * 8)); wr32(a + 12, cap * 2); } wr32(rd32(a + 8) + 4 * n, x); wr32(a + 4, n + 1); }
 static gptr array_get(gptr a, u32 i) { return i < rd32(a + 4) ? rd32(rd32(a + 8) + 4 * i) : 0; }
-static gptr new_dict(void) { gptr o = new_obj(cls_NSDictionary); wr32(o + 4, 0); wr32(o + 8, gm_malloc(128)); wr32(o + 12, gm_malloc(128)); return o; }
+static gptr new_dict(void) { gptr o = new_obj(cls_NSDictionary); wr32(o + 4, 0); wr32(o + 8, gm_malloc(128)); wr32(o + 12, gm_malloc(128)); gm_gc_own(rd32(o + 8), o); gm_gc_own(rd32(o + 12), o); return o; }
 static void dict_set(gptr d, gptr k, gptr v) { u32 n = rd32(d + 4); wr32(rd32(d + 8) + 4 * n, k); wr32(rd32(d + 12) + 4 * n, v); wr32(d + 4, n + 1); }
 static gptr dict_get(gptr d, gptr k) { for (u32 i = 0; i < rd32(d + 4); i++) { gptr kk = rd32(rd32(d + 8) + 4 * i); if (kk == k || (is_string(kk) && is_string(k) && !strcmp(scstr(kk), scstr(k)))) return rd32(rd32(d + 12) + 4 * i); } return 0; }
 
@@ -243,8 +252,8 @@ static int host_msg(const char *cls, gptr recv, const char *sel, int stret, int 
             objc_construct(recv, o);
             ret(o); return 0; }
         gptr o = new_obj(c);
-        if (strstr(cn, "Array") || strstr(cn, "Set")) { wr32(o + 8, gm_malloc(256)); wr32(o + 12, 64); }
-        if (strstr(cn, "Dictionary")) { wr32(o + 8, gm_malloc(128)); wr32(o + 12, gm_malloc(128)); } if (!strncmp(cn, "NS", 2) && strstr(cn, "String")) { wr32(o + 8, gm_strdup("")); wr32(o + 4, 0x7C8); } ret(o); return 0; }
+        if (strstr(cn, "Array") || strstr(cn, "Set")) { wr32(o + 8, gm_malloc(256)); gm_gc_own(rd32(o + 8), o); wr32(o + 12, 64); }
+        if (strstr(cn, "Dictionary")) { wr32(o + 8, gm_malloc(128)); wr32(o + 12, gm_malloc(128)); gm_gc_own(rd32(o + 8), o); gm_gc_own(rd32(o + 12), o); } if (!strncmp(cn, "NS", 2) && strstr(cn, "String")) { wr32(o + 8, gm_strdup("")); gm_gc_own(rd32(o + 8), o); wr32(o + 4, 0x7C8); } ret(o); return 0; }
     if (IS("init") || IS("retain") || IS("autorelease") || IS("self") || IS("copy") || IS("mutableCopy")) { ret(self); return 0; }
     if (IS("release") || IS("dealloc") || IS("removeObserver:")) { ret(0); return 0; }
     if (IS("retainCount")) { ret(1); return 0; }

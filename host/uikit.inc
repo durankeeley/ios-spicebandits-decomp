@@ -357,8 +357,8 @@ static gptr nib_make(Nib *nb, int idx) {
     const char *cn = nclass(nb, idx); gptr r = 0;
     if (!strcmp(cn, "NSString") || !strcmp(cn, "NSMutableString")) { NV *b = nv(nb, idx, "NS.bytes"); char tmp[1024]; int n = b && b->type == 8 ? (b->u.d.n < 1023 ? b->u.d.n : 1023) : 0; if (n) memcpy(tmp, b->u.d.p, n); tmp[n] = 0; r = new_string(tmp); }
     else if (!strcmp(cn, "NSNumber")) { NV *v = nv(nb, idx, "NS.intval"); if (!v) v = nv(nb, idx, "NS.dblval"); r = new_number_i(v ? (v->type == 7 ? (int)v->u.f : (int)v->u.i) : 0); }
-    else if (!strcmp(cn, "NSArray") || !strcmp(cn, "NSMutableArray") || !strcmp(cn, "NSSet") || !strcmp(cn, "NSMutableSet")) { r = new_array(); nb->made[idx] = r; NObj *o = &nb->objs[idx]; for (int i = 0; i < o->n; i++) { NV *e = &nb->vals[o->first + i]; if (e->type == 10) array_add(r, nib_make(nb, e->u.ref)); } }
-    else if (!strcmp(cn, "NSDictionary") || !strcmp(cn, "NSMutableDictionary")) { r = new_dict(); nb->made[idx] = r; NObj *o = &nb->objs[idx]; gptr k = 0; int have = 0; for (int i = 0; i < o->n; i++) { NV *e = &nb->vals[o->first + i]; if (e->type != 10) continue; gptr x = nib_make(nb, e->u.ref); if (!have) { k = x; have = 1; } else { dict_set(r, k, x); have = 0; } } }
+    else if (!strcmp(cn, "NSArray") || !strcmp(cn, "NSMutableArray") || !strcmp(cn, "NSSet") || !strcmp(cn, "NSMutableSet")) { r = new_array(); nb->made[idx] = r; { extern void gm_gc_pin(gptr); gm_gc_pin(r); } NObj *o = &nb->objs[idx]; for (int i = 0; i < o->n; i++) { NV *e = &nb->vals[o->first + i]; if (e->type == 10) array_add(r, nib_make(nb, e->u.ref)); } }
+    else if (!strcmp(cn, "NSDictionary") || !strcmp(cn, "NSMutableDictionary")) { r = new_dict(); nb->made[idx] = r; { extern void gm_gc_pin(gptr); gm_gc_pin(r); } NObj *o = &nb->objs[idx]; gptr k = 0; int have = 0; for (int i = 0; i < o->n; i++) { NV *e = &nb->vals[o->first + i]; if (e->type != 10) continue; gptr x = nib_make(nb, e->u.ref); if (!have) { k = x; have = 1; } else { dict_set(r, k, x); have = 0; } } }
     else if (!strcmp(cn, "UIColor")) { float rr = nv_float(nb, idx, "UIRed", -1), gg = nv_float(nb, idx, "UIGreen", 0), bb = nv_float(nb, idx, "UIBlue", 0), aa = nv_float(nb, idx, "UIAlpha", 1);
         if (rr < 0) { float w = nv_float(nb, idx, "UIWhite", 0); rr = gg = bb = w; }
         const char *sysn = nv_string(nb, idx, "UISystemColorName");      /* named system colours carry no components */
@@ -385,7 +385,7 @@ static gptr nib_make(Nib *nb, int idx) {
     else if (view_family(cn)) { gptr o = new_obj(objc_class_object(cn)); nb->made[idx] = o; View *v = view_of(o); (void)v; nib_apply_view(nb, idx, o); r = o; }
     else if (!strcmp(cn, "NSObject")) r = 0;       /* root */
     else { hle_log("[nib] unknown class %s\n", cn); r = new_obj(objc_class_object(cn)); }
-    nb->made[idx] = r; return r;
+    nb->made[idx] = r; { extern void gm_gc_pin(gptr); gm_gc_pin(r); } return r;
 }
 /* KVC-ish outlet assignment: setter, else ivar (name or _name) */
 static const char *ivar_find(gptr cls, const char *name, u32 *off) {

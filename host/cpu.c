@@ -121,7 +121,7 @@ static void game_resume_poll(void) {
 }
 void cpu_thread_pump(void);
 void engine_poll(void) {
-    g_frames++; game_resume_poll(); cpu_thread_pump();
+    g_frames++; game_resume_poll(); cpu_thread_pump(); { extern void gm_gc_maybe_hook(void); gm_gc_maybe_hook(); }
     for (int i = 0; i < npend; i++) {
         if (!pend[i].fn || g_frames < pend[i].due) continue;
         if (g_engine_obj && g_frames < pend[i].due + 600) { gptr cmd = rd32(g_engine_obj + 0x14); if (cmd && rd32(cmd) != 3) continue; }
@@ -262,14 +262,116 @@ u32 call_guest(gptr fn, int nargs, const u32 *args) {
 /* ---- guest heap: segregated power-of-two free lists, 16-byte header ---- */
 static gptr heap_cur = HEAP_BASE; static gptr freel[32];
 static int cls_of(size_t n) { int c = 4; while (((size_t)1 << c) < n) c++; return c; }
+/* RA_HEAPPROF=1: bytes of guest heap handed out, grouped by (host caller, guest lr); printed at the screenshot */
+typedef struct { void *host; u32 lr; unsigned long bytes, count; } HProf; static HProf hprof[8192]; static int nhprof;
+void gm_heapprof_dump(void) { if (!getenv("RA_HEAPPROF")) return; for (int i = 0; i < nhprof; i++) for (int j = i + 1; j < nhprof; j++) if (hprof[j].bytes > hprof[i].bytes) { HProf t = hprof[i]; hprof[i] = hprof[j]; hprof[j] = t; }
+    for (int i = 0; i < nhprof && i < 30; i++) fprintf(stderr, "[heapprof] %8lu KB %7lu allocs host=gm_malloc%+ld guest_lr=%08x\n", hprof[i].bytes >> 10, hprof[i].count, (long)((char *)hprof[i].host - (char *)gm_malloc), hprof[i].lr); }
+static void hprof_note(size_t sz, void *host, u32 lr) { static int on = -1; if (on < 0) on = getenv("RA_HEAPPROF") != NULL; if (!on) return; for (int i = 0; i < nhprof; i++) if (hprof[i].host == host && hprof[i].lr == lr) { hprof[i].bytes += sz; hprof[i].count++; return; } if (nhprof < 8192) { hprof[nhprof].host = host; hprof[nhprof].lr = lr; hprof[nhprof].bytes = sz; hprof[nhprof].count = 1; nhprof++; } }
+/* Block header (16 bytes before the block): p-16 flags, p-12 owner (GC: the object that owns this buffer), p-4 size class.  See the GC section below. */
+#define GF_ALLOC 1u
+#define GF_CAND  2u      /* host-created value object (NSString/NSNumber/NSArray/NSDictionary): collectable */
+#define GF_PIN   4u      /* never collected (the host keeps it in a malloc'd structure) */
+#define GF_MARK  8u
+#define GF_DEAD  16u     /* unreachable at the previous collection: freed if still unreachable at the next one */
+#define GK_SHIFT 8       /* object kind in flags bits 8..11: 1 string, 2 number, 3 array/set, 4 dictionary */
+static uint8_t *startbm;   /* one bit per 16 bytes of heap: set where a block starts (blocks are never split or merged) */
+static inline void sb_set(gptr p) { u32 i = (p - HEAP_BASE) >> 4; startbm[i >> 3] |= (uint8_t)(1u << (i & 7)); }
+static inline int sb_get(gptr p) { u32 i = (p - HEAP_BASE) >> 4; return startbm[i >> 3] & (1u << (i & 7)); }
 gptr gm_malloc(size_t n) {
-    if (!n) n = 1; int c = cls_of(n);
+    if (!startbm) startbm = mmap(NULL, ((size_t)(HEAP_END - HEAP_BASE) >> 4) / 8 + 64, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (!n) n = 1; int c = cls_of(n); hprof_note((size_t)1 << c, __builtin_return_address(0), reg(14));
     gptr p = freel[c];
     if (p) { freel[c] = rd32(p); }
-    else { size_t sz = (size_t)1 << c; if (heap_cur + 16 + sz > HEAP_END) { static int warned; if (warned++ < 3) fprintf(stderr, "guest heap exhausted (req %zu, lr=%08x)\n", n, reg(14)); return 0; } p = heap_cur + 16; heap_cur += 16 + sz; }
-    wr32(p - 4, c); memset(H(p), 0, (size_t)1 << c); return p;   /* zeroed: ObjC alloc and calloc rely on it */
+    else { size_t sz = (size_t)1 << c; if (heap_cur + 16 + sz > HEAP_END) { static int warned; if (warned++ < 3) fprintf(stderr, "guest heap exhausted (req %zu, lr=%08x)\n", n, reg(14)); return 0; } p = heap_cur + 16; heap_cur += 16 + sz; sb_set(p); }
+    wr32(p - 4, c); wr32(p - 16, GF_ALLOC); wr32(p - 12, 0); memset(H(p), 0, (size_t)1 << c); return p;   /* zeroed: ObjC alloc and calloc rely on it */
 }
-unsigned gm_heap_used_mb(void) { return (heap_cur - HEAP_BASE) >> 20; }
-void gm_free(gptr p) { if (p < HEAP_BASE + 16 || p >= heap_cur) return; int c = rd32(p - 4); if (c < 4 || c > 30) return; wr32(p, freel[c]); freel[c] = p; }
-gptr gm_realloc(gptr p, size_t n) { if (p < HEAP_BASE + 16 || p >= heap_cur) return gm_malloc(n); int c = rd32(p - 4); size_t old = (size_t)1 << c; if (n <= old) return p; gptr q = gm_malloc(n); memcpy(H(q), H(p), old); gm_free(p); return q; }
+static int g_gc_poison;
+void gm_free(gptr p) { if (p < HEAP_BASE + 16 || p >= heap_cur || (p & 15) || !sb_get(p)) return; if (!(rd32(p - 16) & GF_ALLOC)) return; int c = rd32(p - 4); if (c < 4 || c > 30) return;
+    wr32(p - 16, 0); wr32(p - 12, 0); if (g_gc_poison) memset(H(p), 0xDD, (size_t)1 << c); wr32(p, freel[c]); freel[c] = p; }
+gptr gm_realloc(gptr p, size_t n) { if (p < HEAP_BASE + 16 || p >= heap_cur) return gm_malloc(n); int c = rd32(p - 4); size_t old = (size_t)1 << c; if (n <= old) return p; u32 owner = rd32(p - 12); gptr q = gm_malloc(n); memcpy(H(q), H(p), old); wr32(q - 12, owner); gm_free(p); return q; }
 gptr gm_strdup(const char *s) { size_t n = strlen(s) + 1; gptr p = gm_malloc(n); memcpy(H(p), s, n); return p; }
+unsigned gm_heap_used_mb(void) { return (heap_cur - HEAP_BASE) >> 20; }
+
+/* ---------------------------------------------------------------------------------------------------------------------------------------------
+ * Garbage collector for the host's own Foundation value objects.
+ * The host never frees ObjC objects (retain/release are no-ops), and the game creates strings / arrays / numbers / dictionaries every frame
+ * (objectForKeyPath: splits, stringWithFormat:, ...), so a long session used ~8 MB/min of guest heap.  Those objects (kinds 1-4, tagged GF_CAND by
+ * new_obj) are collected here by conservative mark-and-sweep:
+ *   roots  = every allocated heap block that is not a collectable object or one of its buffers, the guest binary image, the host-created
+ *            "fake" region, the guest stacks, the registers of every engine / parked thread context, the host's static data (.data/.bss: timers,
+ *            defaults, observers, ...), the host C stack and registers, and anything pinned (gm_gc_pin: the host keeps it in malloc'd memory).
+ *   trace  = arrays / sets scan their element buffer, dictionaries their key and value buffers.
+ *   sweep  = an unreachable object is only marked GF_DEAD; if it is still unreachable at the next collection it is freed with its owned buffers
+ *            (one cycle of quarantine covers a UTF8String pointer or a host local that outlives the last reference).
+ * RA_GC=0 disables, RA_GCSTRESS=N collects every N frames (and poisons freed memory) to flush out missing roots, RA_GCLOG=1 logs.
+ * ------------------------------------------------------------------------------------------------------------------------------------------- */
+#include <setjmp.h>
+#include <pthread.h>
+extern char __data_start, _end;
+static u32 *gc_stk; static size_t gc_sp, gc_cap; static unsigned long gc_marked, gc_freed, gc_freed_bytes;
+void gm_gc_tag(gptr o, int kind) { if (o >= HEAP_BASE + 16 && o < heap_cur) wr32(o - 16, rd32(o - 16) | GF_CAND | ((u32)kind << GK_SHIFT)); }
+void gm_gc_pin(gptr o) { if (o >= HEAP_BASE + 16 && o < heap_cur && !(o & 15) && sb_get(o)) wr32(o - 16, rd32(o - 16) | GF_PIN); }
+void gm_gc_own(gptr buf, gptr owner) { if (buf >= HEAP_BASE + 16 && buf < heap_cur && !(buf & 15) && sb_get(buf)) wr32(buf - 12, owner); }
+static inline int gc_is_obj(u32 w) {
+    if (w < HEAP_BASE + 16 || w >= heap_cur || (w & 15) || !sb_get(w)) return 0;
+    return (rd32(w - 16) & (GF_ALLOC | GF_CAND)) == (GF_ALLOC | GF_CAND);
+}
+static void gc_push(u32 w) { if (gc_sp == gc_cap) { gc_cap = gc_cap ? gc_cap * 2 : 65536; gc_stk = realloc(gc_stk, gc_cap * 4); } gc_stk[gc_sp++] = w; }
+static inline void gc_mark(u32 w) { if (!gc_is_obj(w)) return; u32 f = rd32(w - 16); if (f & GF_MARK) return; wr32(w - 16, f | GF_MARK); gc_marked++; gc_push(w); }
+static void gc_scan(const void *base, size_t bytes) { const uint8_t *b = base; size_t n = bytes / 4; for (size_t i = 0; i < n; i++) { u32 w; memcpy(&w, b + i * 4, 4); if (w >= HEAP_BASE + 16 && w < heap_cur) gc_mark(w); } }
+static void gc_scan_block(u32 b) { if (b < HEAP_BASE + 16 || b >= heap_cur || (b & 15) || !sb_get(b) || !(rd32(b - 16) & GF_ALLOC)) return; gc_scan(H(b), (size_t)1 << rd32(b - 4)); }
+static void gc_trace(u32 o) { int k = (rd32(o - 16) >> GK_SHIFT) & 15; if (k == 3) gc_scan_block(rd32(o + 8)); else if (k == 4) { gc_scan_block(rd32(o + 8)); gc_scan_block(rd32(o + 12)); } }
+static void gc_scan_engine(uc_engine *e) { if (!e) return; for (int r = UC_ARM_REG_R0; r <= UC_ARM_REG_R12; r++) { u32 v; if (uc_reg_read(e, r, &v) == UC_ERR_OK && v >= HEAP_BASE + 16 && v < heap_cur) gc_mark(v); } }
+static void gc_free_obj(gptr o) {
+    u32 f = rd32(o - 16); int k = (f >> GK_SHIFT) & 15;
+    gptr b1 = (k == 1 || k == 3 || k == 4) ? rd32(o + 8) : 0, b2 = k == 4 ? rd32(o + 12) : 0;
+    gc_freed++; gc_freed_bytes += 32;
+    if (b1 >= HEAP_BASE + 16 && b1 < heap_cur && !(b1 & 15) && sb_get(b1) && rd32(b1 - 12) == o) { gc_freed_bytes += (size_t)1 << rd32(b1 - 4); gm_free(b1); }
+    if (b2 >= HEAP_BASE + 16 && b2 < heap_cur && !(b2 & 15) && sb_get(b2) && rd32(b2 - 12) == o) { gc_freed_bytes += (size_t)1 << rd32(b2 - 4); gm_free(b2); }
+    gm_free(o);
+}
+void gm_gc_collect(void) {
+    gc_marked = gc_freed = gc_freed_bytes = 0; gc_sp = 0;
+    /* ---- roots: heap blocks that are not collectable objects (or their owned buffers) ---- */
+    for (gptr p = HEAP_BASE + 16; p < heap_cur; ) {
+        u32 f = rd32(p - 16), c = rd32(p - 4), sz = 1u << c;
+        if (f & GF_ALLOC) {
+            if (f & GF_CAND) { if (f & GF_PIN) gc_mark(p); }
+            else { u32 ow = rd32(p - 12); if (!(ow && gc_is_obj(ow))) gc_scan(H(p), sz); }
+        }
+        p += sz + 16;
+    }
+    gc_scan(H(0x1000), 0x800000 - 0x1000);                         /* the guest image: globals */
+    gc_scan(H(FAKE_BASE), fake_cur - FAKE_BASE);                   /* host-created objects / class stubs */
+    gc_scan(H(STACK_TOP - STACK_SIZE), STACK_SIZE);                /* main guest stack */
+    for (int i = 0; i < MAXDEPTH; i++) gc_scan_engine(engines[i]);
+    for (int i = 0; i < nthr; i++) { gc_scan_engine(thr[i].eng); if (thr[i].ctx) for (int r = UC_ARM_REG_R0; r <= UC_ARM_REG_R12; r++) { u32 v; if (uc_context_reg_read(thr[i].ctx, r, &v) == UC_ERR_OK && v >= HEAP_BASE + 16 && v < heap_cur) gc_mark(v); } }
+    gc_scan(&__data_start, (size_t)(&_end - &__data_start));        /* host statics */
+    { jmp_buf jb; setjmp(jb); gc_scan(&jb, sizeof jb);              /* host registers + C stack */
+      void *top = NULL; size_t sz = 0; pthread_attr_t at; if (pthread_getattr_np(pthread_self(), &at) == 0) { pthread_attr_getstack(&at, &top, &sz); pthread_attr_destroy(&at); }
+      char here; if (top) { char *lo = &here, *hi = (char *)top + sz; if (lo < hi) gc_scan((void *)((uintptr_t)lo & ~3ul), (size_t)(hi - lo)); } }
+    /* ---- trace ---- */
+    while (gc_sp) gc_trace(gc_stk[--gc_sp]);
+    /* ---- sweep (quarantine one cycle) ---- */
+    for (gptr p = HEAP_BASE + 16; p < heap_cur; ) {
+        u32 f = rd32(p - 16), sz = 1u << rd32(p - 4), np = p + sz + 16;
+        if ((f & (GF_ALLOC | GF_CAND)) == (GF_ALLOC | GF_CAND)) {
+            if (f & (GF_MARK | GF_PIN)) wr32(p - 16, f & ~(GF_MARK | GF_DEAD));
+            else if (f & GF_DEAD) gc_free_obj(p);
+            else wr32(p - 16, f | GF_DEAD);
+        }
+        p = np;
+    }
+}
+/* called every frame from engine_poll */
+static void gc_maybe(void) {
+    static int mode = -1, stress, logit; static gptr last_heap; static unsigned long last_frame;
+    if (mode < 0) { const char *e = getenv("RA_GC"); mode = !(e && e[0] == '0'); stress = getenv("RA_GCSTRESS") ? atoi(getenv("RA_GCSTRESS")) : 0; logit = getenv("RA_GCLOG") != NULL; if (stress) g_gc_poison = 1; last_heap = heap_cur; }
+    if (!mode) return;
+    int due = stress ? (g_frames % (unsigned)stress == 0) : (heap_cur - last_heap >= (32u << 20) && g_frames - last_frame >= 300);
+    if (!due) return;
+    gptr before = heap_cur; gm_gc_collect(); last_heap = heap_cur; last_frame = g_frames; (void)before;
+    if (logit) fprintf(stderr, "[gc] frame %lu: heap %u MB, %lu live objects, freed %lu objects (%lu KB)\n", (unsigned long)g_frames, gm_heap_used_mb(), gc_marked, gc_freed, gc_freed_bytes >> 10);
+}
+
+void gm_gc_maybe_hook(void) { gc_maybe(); }
