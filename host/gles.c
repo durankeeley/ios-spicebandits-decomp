@@ -44,8 +44,12 @@ V0(glRotatex, glRotatef(FX(arg(0)), FX(arg(1)), FX(arg(2)), FX(arg(3))))
 V0(glScalex, glScalef(FX(arg(0)), FX(arg(1)), FX(arg(2))))
 V0(glTranslatex, glTranslatef(FX(arg(0)), FX(arg(1)), FX(arg(2))))
 V0(glAlphaFuncx, glAlphaFunc(arg(0), FX(arg(1))))
-static void h_glDeleteTextures(void) { int n = arg(0); const GLuint *ids = (const GLuint *)H(arg(1)); for (int i = 0; i < n; i++) { if (ids[i] == sdl_fbo_tex()) { fprintf(stderr, "[gl] guest tried to delete the host render-target texture %u (ignored)\n", ids[i]); continue; } glDeleteTextures(1, &ids[i]); } }
-static void h_glGenTextures(void) { glGenTextures(arg(0), (GLuint *)H(arg(1))); static int n; if (n++ < 6) fprintf(stderr, "[gl] guest genTextures -> %u (host fbo tex %u)\n", ((GLuint *)H(arg(1)))[0], sdl_fbo_tex()); }
+/* Texture names live in one GL namespace shared with the host's own UI textures. Track what the guest generated and only honour a delete for a name it still owns:
+ * the game can delete a name twice (level teardown + Texture2D dealloc); by then the host may have reused the id for a UI image, which then turned white. */
+static unsigned char guest_tex[1 << 16];
+static void h_glDeleteTextures(void) { int n = arg(0); const GLuint *ids = (const GLuint *)H(arg(1)); for (int i = 0; i < n; i++) { if (ids[i] == sdl_fbo_tex()) { fprintf(stderr, "[gl] guest tried to delete the host render-target texture %u (ignored)\n", ids[i]); continue; }
+    if (ids[i] >= (1u << 16) || !guest_tex[ids[i]]) continue; guest_tex[ids[i]] = 0; glDeleteTextures(1, &ids[i]); } }
+static void h_glGenTextures(void) { glGenTextures(arg(0), (GLuint *)H(arg(1))); for (u32 i = 0; i < arg(0); i++) { GLuint t = ((GLuint *)H(arg(1)))[i]; if (t < (1u << 16)) guest_tex[t] = 1; } static int n; if (n++ < 6) fprintf(stderr, "[gl] guest genTextures -> %u (host fbo tex %u)\n", ((GLuint *)H(arg(1)))[0], sdl_fbo_tex()); }
 V0(glTexParameterx, glTexParameteri(arg(0), arg(1), arg(2)))
 static void h_glViewport(void) { glViewport(arg(0), arg(1), arg(2), arg(3)); }
 static void h_glScissor(void) { glScissor(arg(0), arg(1), arg(2), arg(3)); }

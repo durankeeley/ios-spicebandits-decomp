@@ -118,6 +118,13 @@ static Target lookup(gptr recv, const char *sel, int use_super_of, gptr start_cl
 }
 
 static int host_msg(const char *cls, gptr recv, const char *sel, int stret, int *handled);
+/* objc_constructInstance: run each class's C++ ivar constructor (.cxx_construct), superclass first. EAGLView's builds the engine,
+ * including the modal message-box manager the pause menu needs (the host used to skip it, so the "abandon game?" box was never drawn). */
+void objc_construct(gptr cls, gptr o) {
+    gptr chain[16]; int nc = 0;
+    for (gptr k = cls; k && nc < 16; ) { GCls *gk = find_gcls(k); if (!gk) break; chain[nc++] = k; k = gk->super; }
+    for (int ci = nc - 1; ci >= 0; ci--) { GCls *gk = find_gcls(chain[ci]); gptr imp = find_in_methods(gk->methods, ".cxx_construct"); if (imp) { u32 ca[2] = { o, 0 }; hle_log("[objc] .cxx_construct %s\n", gk->name); call_guest(imp, 2, ca); } }
+}
 static int g_handled_ok;
 
 static void do_send(gptr recv, const char *sel, int stret, gptr start_cls, int use_super) {
@@ -224,7 +231,9 @@ static int host_msg(const char *cls, gptr recv, const char *sel, int stret, int 
     #define A(n) arg((stret ? 1 : 0) + (n))   /* n counts from receiver=0, sel=1 */
     /* ---- NSObject protocol ---- */
     if (IS("alloc") || IS("allocWithZone:")) { const char *cn = is_cls ? (is_fake_class(recv) ? fake_name(recv) : cls) : cls; gptr c = objc_class_object(cn);
-        GCls *g = find_gcls(recv); if (g) { gptr o = gm_malloc(g->instsize + 16); wr32(o, recv); if (!strcmp(g->name, "EAGLView")) g_glview = o; ret(o); return 0; }
+        GCls *g = find_gcls(recv); if (g) { gptr o = gm_malloc(g->instsize + 16); wr32(o, recv); if (!strcmp(g->name, "EAGLView")) g_glview = o;
+            objc_construct(recv, o);
+            ret(o); return 0; }
         gptr o = new_obj(c);
         if (strstr(cn, "Array") || strstr(cn, "Set")) { wr32(o + 8, gm_malloc(256)); wr32(o + 12, 64); }
         if (strstr(cn, "Dictionary")) { wr32(o + 8, gm_malloc(128)); wr32(o + 12, gm_malloc(128)); } if (!strncmp(cn, "NS", 2) && strstr(cn, "String")) { wr32(o + 8, gm_strdup("")); wr32(o + 4, 0x7C8); } ret(o); return 0; }

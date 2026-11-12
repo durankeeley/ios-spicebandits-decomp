@@ -217,7 +217,7 @@ static int has_levelup_note(View *v, int depth) {
 static void draw_view(View *v, Mat parent, float alpha) {
     if (v->hidden || v->alpha < 0.01f) return;
     /* offline "You will level up when you get online!" bubble (nib placeholder box + stretched label): hide the small container holding it */
-    if (v->nk <= 4 && has_levelup_note(v, 2)) return;
+    if (v->nk <= 3 && has_levelup_note(v, 1)) return;
     /* developer leftovers authored visible in the nibs (hidden on device by code we do not reproduce): system rounded-rect debug buttons, download-progress placeholders */
     if (v->kind == K_BUTTON && v->obj && !strcmp(v_clsname(v->obj), "UIRoundedRectButton")) return;
     if (v->text && !strncmp(v->text, "progress:", 9)) return;
@@ -371,7 +371,7 @@ static gptr nib_make(Nib *nb, int idx) {
     else if (!strcmp(cn, "UIClassSwapper")) {
         const char *cls = nv_string(nb, idx, "UIClassName"), *orig = nv_string(nb, idx, "UIOriginalClassName"); char cl[96], og[96]; strncpy(cl, cls ? cls : "NSObject", 95); strncpy(og, orig ? orig : "NSObject", 95);
         GCls *g = find_gcls_name(cl); gptr o;
-        if (g) { o = gm_malloc(g->instsize + 16); wr32(o, g->addr); } else { o = new_obj(objc_class_object(cl)); }
+        if (g) { o = gm_malloc(g->instsize + 16); wr32(o, g->addr); { extern void objc_construct(gptr, gptr); objc_construct(g->addr, o); } } else { o = new_obj(objc_class_object(cl)); }
         nb->made[idx] = o; r = o;
         if (view_family(og)) { gptr real = o; View *v0 = view_of(o); if (v0) { const char *vf = view_family(og); if (!strcmp(vf, "UIImageView")) v0->kind = K_IMAGEVIEW; else if (!strcmp(vf, "UILabel")) v0->kind = K_LABEL; else if (strstr(vf, "Button")) v0->kind = K_BUTTON; else if (!strcmp(vf, "UIScrollView")) v0->kind = K_SCROLL; else if (!strcmp(vf, "UIWindow")) v0->kind = K_WINDOW; }
             if (!strcmp(cl, "EAGLView")) { v0->is_gl = 1; }
