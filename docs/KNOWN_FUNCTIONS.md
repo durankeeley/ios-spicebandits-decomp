@@ -65,6 +65,14 @@ Conventions: `game` = the engine game object created by `sub_f643c` (size 0x500,
 
 Tutorial drag: the ghost tower is drawn about 58 px above the finger, so drop 58 px **below** the marker centre.
 
+## Upgrades yard (spending upgrade points)
+
+| Address | Function | What it does |
+|---|---|---|
+| `0x31230` | `-[UpgradesViewController viewDidLoad]` | builds the tile grid from `userData[tower_upgrades]` via `keysSortedByValueUsingComparator:` (host implements it; before, the list was empty), then `makeObjectsPerformSelector:` refreshes the tiles |
+| `0x69350` / `0x69370` | `+[UpgradeLevel LevelFromPoints:]` / `PointsToLevel:` | cumulative cost table (max level 10); `up_*` userData values are points, not levels |
+| - | `-[TDPlayer modBuyUpgrade:withSign:]` -> `-[TDServer modBuyUpgrade:]` | offline buy: the game itself updates `up_<key>` and `specpoints` in the response and `processResponse:` merges it; persisted via `AnonymousUserData` |
+
 ## Touch input facts
 - The engine polls the touch state once per frame (`[game+0x344/0x348]` position, `[game+0x34c]` down flag, `[game+0x33c/0x340]` begin position) in `c9768`, `d2768` (tutorial update `b7c98`) and the pause menu (`ad24c`); a press and release inside one frame is invisible to it, so the host keeps a mouse click "down" for 4 frames.
 

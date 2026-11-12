@@ -361,6 +361,16 @@ static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int
     if (!strcmp(cls, "UIScreen") && FS("instancesRespondToSelector:")) { ret(0); return 1; }
     if (!strcmp(cls, "AVAudioPlayer")) { ret(is_cls ? 0 : 0); return 1; }
     if (!strcmp(cls, "NSRunLoop")) { if (is_cls) { ret(new_obj(objc_class_object("NSRunLoop"))); return 1; } ret(0); return 1; }
+    /* -[NSDictionary keysSortedByValueUsingComparator:] (UpgradesViewController builds its list from it) and -[NSArray makeObjectsPerformSelector:] */
+    if (is_cls_named(cls, "Dictionary") && FS("keysSortedByValueUsingComparator:")) {
+        gptr blk = UA(2), a = new_array(); u32 n = rd32(recv + 4);
+        for (u32 i = 0; i < n; i++) { gptr k = rd32(rd32(recv + 8) + 4 * i), v = rd32(rd32(recv + 12) + 4 * i); array_add(a, k); u32 j = i;
+            while (j > 0) { gptr pk = array_get(a, j - 1), pv = dict_lookup(recv, pk); u32 ca[3] = { blk, pv, v }; if ((s32)call_guest(rd32(blk + 12), 3, ca) <= 0) break; wr32(rd32(a + 8) + 4 * j, pk); j--; }
+            wr32(rd32(a + 8) + 4 * j, k); }
+        ret(a); return 1; }
+    if (is_cls_named(cls, "Array") && (FS("makeObjectsPerformSelector:") || FS("makeObjectsPerformSelector:withObject:"))) {
+        for (u32 i = 0; i < rd32(recv + 4); i++) { u32 ca[1] = { UA(3) }; send_guest(array_get(recv, i), gstr(UA(2)), FS("makeObjectsPerformSelector:") ? 0 : 1, ca); }
+        ret(0); return 1; }
     if (is_cls_named(cls, "Array") && (FS("sortedArrayUsingComparator:") || FS("sortUsingComparator:"))) {
         gptr blk = UA(2); gptr arr = FS("sortUsingComparator:") ? recv : arr_copy(recv, objc_class_object("NSMutableArray")); u32 n = rd32(arr + 4);
         for (u32 i = 1; i < n; i++) { gptr x = array_get(arr, i); u32 j = i; while (j > 0) { u32 a[3] = { blk, array_get(arr, j - 1), x }; if ((s32)call_guest(rd32(blk + 12), 3, a) <= 0) break; wr32(rd32(arr + 8) + 4 * j, array_get(arr, j - 1)); j--; } wr32(rd32(arr + 8) + 4 * j, x); }
