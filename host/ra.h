@@ -70,7 +70,7 @@ void gles_init(void);
 void audio_init(void);
 void sdl_init(int w, int h);
 int  objc_run_app(void);                     /* UIApplicationMain loop; returns exit code */
-extern const char *g_bundle_dir, *g_docs_dir;
+extern const char *g_bundle_dir, *g_docs_dir, *g_levels_dir;
 extern int g_screen_w, g_screen_h;
 const char *host_path(const char *guest);    /* map guest paths -> host paths */
 void  hle_log(const char *fmt, ...);

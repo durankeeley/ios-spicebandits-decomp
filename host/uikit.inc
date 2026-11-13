@@ -140,6 +140,7 @@ typedef struct View {
     float bx, by, bw, bh, cx, cy; float ta, tb, tc_, td, ttx, tty; float alpha; int hidden, tag, interact, clips, hasbg, is_gl, highlighted, selected, disabled, enabled_set;
     float bg[4]; gptr image, himage; char *text; char font[64]; float fsize, tcol[4]; int align, lines;
     gptr bimg[4], bbg[4]; char *btitle[4]; float btc[4][4]; Action act[8]; int nact; float sx, sy, cw, ch; gptr gr_target[4]; char gr_sel[4][64]; int ngr; gptr delegate; gptr layer; int dirty; int mask; int noautosub;
+    int ca_on, ca_hasop, ca_haspos; float ca_op, ca_rot, ca_sx, ca_sy, ca_tx, ca_ty, ca_px, ca_py, ax, ay;   /* Core Animation presentation overlay (host/uikit2.inc) */
 } View;
 static View *vtab[8192]; static int nvt;
 static View *g_window;                 /* key window */
@@ -147,7 +148,7 @@ static View *view_lookup(gptr obj) { for (int i = 0; i < nvt; i++) if (vtab[i]->
 static View *view_of(gptr obj) {
     if (!obj || obj >= ARENA_SIZE - 16) return NULL; View *v = view_lookup(obj); if (v) return v;
     if (nvt >= 8192) return NULL;
-    v = calloc(1, sizeof *v); v->obj = obj; v->alpha = 1; v->interact = 1; v->ta = v->td = 1; v->fsize = 17; v->bw = v->bh = 0; strcpy(v->font, "Helvetica"); v->tcol[3] = 1; v->kind = K_VIEW;
+    v = calloc(1, sizeof *v); v->obj = obj; v->alpha = 1; v->interact = 1; v->ta = v->td = 1; v->fsize = 17; v->bw = v->bh = 0; strcpy(v->font, "Helvetica"); v->tcol[3] = 1; v->kind = K_VIEW; v->ax = v->ay = 0.5f;
     v->bx = v->by = 0; v->bw = 320; v->bh = 480; v->cx = 160; v->cy = 240; vtab[nvt++] = v;
     gptr cls = rd32(obj); const char *cn = is_fake_class(cls) ? fake_name(cls) : ""; GCls *g = find_gcls(cls); for (int guard = 0; g && guard < 16; guard++) { cn = gstr(0); GCls *sg = find_gcls(g->super); if (!sg) { cn = is_fake_class(g->super) ? fake_name(g->super) : ""; break; } g = sg; }
     if (!strcmp(cn, "UIImageView")) v->kind = K_IMAGEVIEW; else if (!strcmp(cn, "UILabel")) v->kind = K_LABEL; else if (strstr(cn, "Button")) v->kind = K_BUTTON; else if (!strcmp(cn, "UIScrollView")) v->kind = K_SCROLL;
@@ -210,12 +211,18 @@ static void draw_text(Mat m, const char *text, const char *font, float size, con
     float dx = x; if (align == 1) dx = x + (w - tw) / 2; else if (align == 2) dx = x + w - tw; float dy = y + (h - th) / 2; if (lines != 1 && th > h) dy = y;
     glBindTexture(GL_TEXTURE_2D, t); glEnable(GL_TEXTURE_2D); glColor4f(1, 1, 1, col[3] * alpha); quad(m, dx, dy, dx + tw, dy + th, 0, 0, 1, 1);
 }
+/* Spice shop "Free stuff" block (socials, gift, "check out an ad from our partners"): needs the dead network/ad SDKs, so it is removed */
+static int is_free_stuff_block(View *v) {
+    if (v->kind != K_VIEW || v->nk < 4 || v->nk > 16) return 0;
+    for (int i = 0; i < v->nk; i++) if (v->kids[i]->text && !strncmp(v->kids[i]->text, "Free stuff", 10)) return 1;
+    return 0; }
 static int has_levelup_note(View *v, int depth) {
     if (v->text && !strncmp(v->text, "You will level up", 17)) return 1;
     if (depth > 0) for (int i = 0; i < v->nk; i++) if (has_levelup_note(v->kids[i], depth - 1)) return 1;
     return 0; }
 static void draw_view(View *v, Mat parent, float alpha) {
-    if (v->hidden || v->alpha < 0.01f) return;
+    if (v->hidden || (v->ca_on && v->ca_hasop ? v->ca_op : v->alpha) < 0.01f) return;
+    if (is_free_stuff_block(v)) { v->hidden = 1; return; }
     /* offline "You will level up when you get online!" bubble (nib placeholder box + stretched label): hide the small container holding it */
     if (v->nk <= 3 && has_levelup_note(v, 1)) return;
     /* developer leftovers authored visible in the nibs (hidden on device by code we do not reproduce): system rounded-rect debug buttons, download-progress placeholders */
@@ -226,8 +233,16 @@ static void draw_view(View *v, Mat parent, float alpha) {
     if (v->text && !strcmp(v->text, "\"Spice must flow!\"")) return;   /* nib placeholder status, hidden unless the player set one */
     if (v->text && v->text[0] == '$' && v->tag >= 17 && v->tag <= 47 && v->tag % 10 == 7) return;
     if (v->kind == K_IMAGEVIEW && v->image && img_of(v->image) && (strstr(img_of(v->image)->name, "sale_") || strstr(img_of(v->image)->name, "spiceshop_parrot"))) return;
-    float a = alpha * v->alpha, x, y, w, h; v_frame(v, &x, &y, &w, &h);
-    Mat T = {1, 0, 0, 1, v->cx, v->cy}, X = {v->ta, v->tb, v->tc_, v->td, v->ttx, v->tty}, B = {1, 0, 0, 1, -v->bw / 2 - 0, -v->bh / 2 - 0};
+    float vcx = v->cx, vcy = v->cy, vop = v->alpha, x, y, w, h; v_frame(v, &x, &y, &w, &h);
+    Mat X = {v->ta, v->tb, v->tc_, v->td, v->ttx, v->tty};
+    if (v->ca_on) {   /* layer animations (CABasicAnimation ...) are a presentation overlay on the model values */
+        if (v->ca_hasop) vop = v->ca_op;
+        if (v->ca_haspos) { vcx = v->ca_px + (0.5f - v->ax) * v->bw; vcy = v->ca_py + (0.5f - v->ay) * v->bh; }
+        float cr = cosf(v->ca_rot), sr = sinf(v->ca_rot); Mat O = {cr * v->ca_sx, sr * v->ca_sx, -sr * v->ca_sy, cr * v->ca_sy, 0, 0}; X = mat_mul(X, O);
+        { float dx = (0.5f - v->ax) * v->bw, dy = (0.5f - v->ay) * v->bh; vcx += O.a * dx + O.c * dy - dx; vcy += O.b * dx + O.d * dy - dy; }   /* pivot about the layer's anchor point */
+        vcx += v->ca_tx; vcy += v->ca_ty; }
+    float a = alpha * vop;
+    Mat T = {1, 0, 0, 1, vcx, vcy}, B = {1, 0, 0, 1, -v->bw / 2 - 0, -v->bh / 2 - 0};
     Mat m = mat_mul(parent, mat_mul(T, mat_mul(X, B)));      /* parent * translate(center) * transform * translate(-size/2) */
     int scissor = 0;
     if (v->clips && v->ta == 1 && v->td == 1 && v->tb == 0 && v->tc_ == 0) { float sx0, sy0, sx1, sy1; mat_pt(m, 0, 0, &sx0, &sy0); mat_pt(m, v->bw, v->bh, &sx1, &sy1);
@@ -453,6 +468,9 @@ static void scroll_clamp(View *s) {
     float cw = s->cw, ch = s->ch;
     if (ch <= 0 || cw <= 0) for (int i = 0; i < s->nk; i++) { View *k = s->kids[i]; float r = k->cx + k->bw / 2, b = k->cy + k->bh / 2; if (r > cw) cw = r; if (b > ch) ch = b; }
     float mx = cw - s->bw, my = ch - s->bh; if (mx < 0) mx = 0; if (my < 0) my = 0;
+    /* a portrait-authored scroll view (768x953 in a 1024x768 window) hangs off the bottom of the window, so the last rows can never be
+       scrolled into sight (tech shop anti-aircraft tree); allow scrolling by the hidden part plus the player bar (~80 px) laid over the bottom */
+    { float top = 0; for (View *a = s; a; a = a->parent) top += a->cy - a->bh / 2 - (a->kind == K_SCROLL && a != s ? a->sy : 0); float over = top + s->bh - g_scr_h; if (over > 0 && my > 0) my += over + 80; }
     if (s->sx > mx) s->sx = mx; if (s->sx < 0) s->sx = 0; if (s->sy > my) s->sy = my; if (s->sy < 0) s->sy = 0;
 }
 void uikit_wheel(int x, int y, float dy) {

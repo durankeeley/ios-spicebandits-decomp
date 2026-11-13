@@ -68,6 +68,20 @@ Conventions: `game` = the engine game object created by `sub_f643c` (size 0x500,
 
 Tutorial drag: the ghost tower is drawn about 58 px above the finger, so drop 58 px **below** the marker centre.
 
+## Career / fitting room, level packs
+| address | name / role | notes |
+|---|---|---|
+| `0x2d100` | `-[CareerViewController openFittingRoom:]` | `[[Session] loggedInCheck]` -> same `userId` check -> **`[[Session player] offline]` (`0x2d1a4`)**: when true it only shows a "must be online" `UIAlertView` (host answers alloc/init of it with nil, so nothing happened). Otherwise (`0x2d286`) it builds `DressRoomViewController`, adds its view/`heroView`, hides `fittingRoomButton`. `cpu.c` hooks `0x2d1ac` and jumps to `0x2d286` |
+| `0x2ddbc` / `0x2cf30` | `closeDressRoom` / `removeDressRoomController` | |
+| `-[MapDownloadTracker CheckAndDownloadMissingMaps]` / `+[FileDownloadViewController fileDownloaded:]` | `0x94cac` / `0x1ad34` | the latter is `[[NSUserDefaults standardUserDefaults] boolForKey:<zip url>]` (not needed once the maps are on disk); | level packs come from `http://levels.tower.on-5.com/<map>.zip` (list: `userData.tower_files`); each zip holds `maps/map_<id>.xml` plus theme art (e.g. 721 = Airbase: `maps/urban/700/level21.*`). The bundle only has a few; `tools/fetch_levels.sh` downloads all into `levels/` |
+
+## Main menu / Core Animation
+| address | name / role | notes |
+|---|---|---|
+| `0x1ee38` | `-[TowerViewController startAnimations]` | calls `startFliesAnimations` (`0x203e4`), `startLogoAnimations` (`0x20868`, eye `0x20e20`, light `0x21330`), `startChainAnimations` (`0x215b4`), `startSkyAnimations` (`0x21900`), `startGearAnimations` (`0x21ee0`), `startLampsightsAnimations` (`0x22298`) and the bubble/note timers (`0x1f39c`, `0x1f470`); all use `CABasicAnimation`/`CAKeyframeAnimation`/`CAAnimationGroup` on `[view layer]` (keypaths `opacity`, `position(.x)`, `transform.rotation.z`, `transform.scale(.x/.y)`, `transform.translation.y`, `bounds.size`) |
+| `0x23170` | `-[TowerViewController intro]` | menu "Intro" button: `IntroSequenceView` + movie from `http://%@/intro.php` (server dead, video not shipped) |
+| `0x1ad34` | `+[FileDownloadViewController fileDownloaded:]` | `[[NSUserDefaults standardUserDefaults] boolForKey:<zip url>]` |
+
 ## Upgrades yard (spending upgrade points)
 
 | Address | Function | What it does |

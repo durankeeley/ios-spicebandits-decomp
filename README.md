@@ -23,7 +23,7 @@ It is **not** a source decompilation. The original armv7 Mach-O runs unmodified 
 | Original code executed | 100 % of what runs is the original binary, via emulation |
 | Platform layer (this repo's real code) | ~3,100 dense lines of C in `host/`; 0 unimplemented imports hit on the menu/map/shop/career path; ~15 unhandled Objective-C selectors still answered with nil |
 | Boots to main menu | works |
-| Main menu | renders, animations run (UIView animation engine); some nib leftovers hidden |
+| Main menu | renders, animations run (UIView + Core Animation layer engine); some nib leftovers hidden; the "Intro" video is not available |
 | World map | renders (iPad assets) with the Training flyout; the flyout icon is still missing |
 | Tech shop | renders item trees from the offline profile; tabs and Done work |
 | Career | layout and avatar match the original; progress is saved between runs (`defaults.bin`); fitting room and medals/friends not checked |
@@ -57,6 +57,7 @@ Handy debug switches (environment variables): `RA_TRACE`, `RA_BREAK=addr,...`, `
 
 ```
 host/    the iOS runtime stand-in (cpu, macho, objc, uikit, foundation, gles, sdl, ...)
+levels/  level map packs and fitting-room items the game normally downloads (tools/fetch_levels.sh)
 tools/   binary analysis: function finder, ObjC dumper, selector xrefs, nib/PNG converters
 docs/    generated catalogues (functions, classes, imports, HLE backlog) and PORT_STATUS.md
 tests/   unit tests for tools + screenshot-signature goldens for the host

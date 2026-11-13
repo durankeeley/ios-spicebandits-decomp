@@ -397,3 +397,4 @@ void sk_deliver(gptr req) {
     if (guest_responds(del, "productsRequest:didReceiveResponse:")) { u32 a[2] = { req, resp }; send_guest(del, "productsRequest:didReceiveResponse:", 2, a); }
     if (guest_responds(del, "requestDidFinish:")) { u32 a[1] = { req }; send_guest(del, "requestDidFinish:", 1, a); }
 }
+

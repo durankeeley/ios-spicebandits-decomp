@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xml>
+<tiles>
+	<tile>
+		<id>1</id>
+		<sx>556</sx>
+		<sy>0</sy>
+        <w>114</w>
+        <h>128</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+        <no_depth>1</no_depth>
+	</tile>
+</tiles>
+</xml>

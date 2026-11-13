@@ -23,8 +23,15 @@ int main(int argc, char **argv) {
         if (x) snprintf(docs, sizeof docs, "%s/spicebandits-ios", x); else snprintf(docs, sizeof docs, "%s/.local/share/spicebandits-ios", hm ? hm : "."); g_docs_dir = docs; }
     { char tmp[4096]; snprintf(tmp, sizeof tmp, "mkdir -p '%s'", g_docs_dir); if (system(tmp)) {} }
     g_bundle_dir = app;
-    /* offline: the game normally downloads level maps into <docs>/downloads/maps; the bundle already ships them, so link them in */
-    { char cmd[9000]; snprintf(cmd, sizeof cmd, "mkdir -p '%s/downloads/maps' && for f in '%s'/maps/*; do [ -e '%s/downloads/maps/'\"$(basename \"$f\")\" ] || ln -s \"$f\" '%s/downloads/maps/'; done", g_docs_dir, app, g_docs_dir, g_docs_dir); if (system(cmd)) {} }
+    /* offline: the game normally downloads level packs into <docs>/downloads/maps. Link the bundle's maps and the packs
+       fetched by tools/fetch_levels.sh (<repo>/levels/maps, or $RA_LEVELS/maps) in file by file (cp -rs), so a pack
+       can add files to a bundle directory (urban/700/...). Older runs symlinked whole directories: drop those first. */
+    static char lvbuf[4096]; { const char *lv = getenv("RA_LEVELS"); char t[4096]; snprintf(t, sizeof t, "%s/../../../../levels", app); if (!realpath(lv && *lv ? lv : t, lvbuf)) lvbuf[0] = 0; g_levels_dir = lvbuf; }
+    { char cmd[12000]; const char *lv = getenv("RA_LEVELS");
+      snprintf(cmd, sizeof cmd, "D='%s/downloads/maps'; mkdir -p \"$D\"; find \"$D\" -maxdepth 1 -type l -xtype d -delete; find \"$D\" -xtype l -delete; "
+          "cp -rsn '%s'/maps/. \"$D\"/ 2>/dev/null; L=\"%s\"; [ -n \"$L\" ] || L='%s'/../../../../levels; [ -d \"$L/maps\" ] && cp -rsn \"$(realpath \"$L\")\"/maps/. \"$D\"/ 2>/dev/null; true",
+          g_docs_dir, app, lv ? lv : "", app);
+      if (system(cmd)) {} }
     if (chdir(app)) perror("chdir bundle");   /* iOS runs apps with cwd = bundle */
     char bin[4096]; snprintf(bin, sizeof bin, "%s/Tower", app);
     cpu_init();

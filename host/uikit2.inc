@@ -53,8 +53,9 @@ static void scope_end(void) {
     }
     sc.comp = 0; sc.dlg = 0; sc.stop[0] = 0; (void)made;
 }
+static void ca_tick(double now);
 void uikit_anim_tick(void) {
-    g_anim_frames++; double now = anim_now();
+    g_anim_frames++; double now = anim_now(); ca_tick(now);
     for (int i = 0; i < nanims; ) { Anim *a = &anims[i]; double p = (now - a->t0 - a->delay) / a->dur; int done = 0; float cur[NPROP];
         float rep = a->rep > 0 ? a->rep : 1; if (a->v) { get_props(a->v, cur); if (p > 0) for (int j = 0; j < NPROP; j++) if (cur[j] != a->last[j]) a->det[j] = 1; }   /* a property the app wrote itself stops animating */
         if (p >= rep) done = 1;
@@ -70,6 +71,106 @@ static int anim_block(gptr blk, double dur, double delay, int opts, gptr comp) {
     int nested = sc.open; if (nested) return 0;
     scope_begin(dur, delay, rep, ar, curve, 0); sc.comp = comp ? block_copy_ui(comp) : 0; run_block(blk, 0, 0); scope_end(); return 1;
 }
+/* ---- Core Animation: CABasicAnimation / CAKeyframeAnimation / CAAnimationGroup added to a UIView's layer ----
+   The animation objects are host objects (slot index at +8). addAnimation:forKey: flattens them into "active leaves" that are evaluated every
+   frame by ca_tick() into a presentation overlay on the View (ca_* fields, applied in draw_view); the model values are never touched, as in CA. */
+static int is_number(gptr o); static double num_double(gptr o);
+#define CA_MAXV 24
+typedef struct { int kind; char kp[40]; double dur, begin, rep; int autorev, rem, fill, curve, hasfrom, hasto, hasby, nv, nt, nk; float from[2], to[2], by[2], v[CA_MAXV][2], t[CA_MAXV]; gptr kid[8], dlg; } CAd;
+static CAd cad[16384]; static int ncad;
+typedef struct { View *v; char key[40]; CAd d; double t0, gdur, grep; int grp, gautorev, top, held, notified; gptr obj, dlg; } CAact;
+static CAact caact[4096]; static int ncaact;
+static gptr ca_new(const char *cls, int kind) { gptr o = new_obj(objc_class_object(cls)); ncad = (ncad + 1) & 16383; CAd *d = &cad[ncad]; memset(d, 0, sizeof *d); d->kind = kind; d->rem = 1; d->curve = 3; wr32(o + 8, ncad); return o; }
+static CAd *ca_of(gptr o) { return o && o < ARENA_SIZE - 16 ? &cad[rd32(o + 8) & 16383] : NULL; }
+static int ca_val(gptr o, float *out) {
+    if (!o || o >= ARENA_SIZE - 16) return 0; if (is_number(o)) { out[0] = out[1] = (float)num_double(o); return 1; }
+    if (rd32(o + 4) == 0x50545331u) { out[0] = f_of(rd32(o + 8)); out[1] = f_of(rd32(o + 12)); return 1; } return 0; }
+static void ca_model(View *v, const char *kp, float *o) {
+    o[0] = o[1] = 0;
+    if (!strcmp(kp, "opacity")) o[0] = v->alpha; else if (!strncmp(kp, "transform.scale", 15)) o[0] = o[1] = 1;
+    else if (!strncmp(kp, "position", 8)) { o[0] = v->cx - (0.5f - v->ax) * v->bw; o[1] = v->cy - (0.5f - v->ay) * v->bh; } }
+static void ca_apply(View *v, const char *kp, const float *x) {
+    v->ca_on = 1;
+    if (!strcmp(kp, "opacity")) { v->ca_hasop = 1; v->ca_op = x[0]; }
+    else if (!strcmp(kp, "transform.rotation.z") || !strcmp(kp, "transform.rotation")) v->ca_rot = x[0];
+    else if (!strcmp(kp, "transform.scale")) v->ca_sx = v->ca_sy = x[0]; else if (!strcmp(kp, "transform.scale.x")) v->ca_sx = x[0]; else if (!strcmp(kp, "transform.scale.y")) v->ca_sy = x[0];
+    else if (!strcmp(kp, "transform.translation.x")) v->ca_tx = x[0]; else if (!strcmp(kp, "transform.translation.y")) v->ca_ty = x[0];
+    else if (!strcmp(kp, "transform.translation")) { v->ca_tx = x[0]; v->ca_ty = x[1]; }
+    else if (!strncmp(kp, "position", 8)) { if (!v->ca_haspos) { float m[2]; ca_model(v, "position", m); v->ca_px = m[0]; v->ca_py = m[1]; v->ca_haspos = 1; }
+        if (!strcmp(kp, "position")) { v->ca_px = x[0]; v->ca_py = x[1]; } else if (!strcmp(kp, "position.x")) v->ca_px = x[0]; else if (!strcmp(kp, "position.y")) v->ca_py = x[0]; } }
+/* 0 = not started yet, 1 = running (val set), 2 = finished (val = final) */
+static int ca_eval(CAact *a, double now, float *val) {
+    CAd *d = &a->d; double tg = now - a->t0, tl, fr; int fin = 0;
+    if (a->grp) { double gd = a->gdur > 0 ? a->gdur : 1, gp = tg / gd, reps = a->grep >= 1e8 ? 1e18 : a->grep;
+        if (gp >= reps) { fin = 1; tl = gd; } else { int k = (int)gp; double f = gp - k; if (a->gautorev && (k & 1)) f = 1 - f; tl = f * gd; } }
+    else tl = tg;
+    double lt = tl - d->begin; if (lt < 0 && !fin) return 0; double dur = d->dur > 0.001 ? d->dur : 0.25;
+    if (a->grp) { fr = fin ? 1 : lt / dur; if (fr > 1) fr = 1; if (fr < 0) fr = 0; }
+    else { double pt = lt / dur, reps = d->rep >= 1e8 ? 1e18 : (d->rep > 0 ? d->rep : 1);
+        if (pt >= reps) { fin = 1; int k = (int)reps; double f = reps - k; if (f < 1e-6 && k > 0) { k--; f = 1; } if (d->autorev && (k & 1)) f = 1 - f; fr = f; }
+        else { int k = (int)pt; double f = pt - k; if (d->autorev && (k & 1)) f = 1 - f; fr = f; } }
+    float f = curve_f(d->curve, (float)fr); if (fr >= 1 && !d->autorev) f = 1;
+    if (d->kind == 2 && d->nv >= 2) { int n = d->nv, i = 0; float tt[CA_MAXV]; for (int j = 0; j < n; j++) tt[j] = d->nt == n ? d->t[j] : (float)j / (n - 1);
+        while (i < n - 2 && f > tt[i + 1]) i++; float span = tt[i + 1] - tt[i], l = span > 1e-6f ? (f - tt[i]) / span : 1; if (l < 0) l = 0; if (l > 1) l = 1;
+        for (int c = 0; c < 2; c++) val[c] = d->v[i][c] + (d->v[i + 1][c] - d->v[i][c]) * l; }
+    else { float m[2], fv[2], tv[2]; ca_model(a->v, d->kp, m);
+        for (int c = 0; c < 2; c++) { fv[c] = d->hasfrom ? d->from[c] : (d->hasby && !d->hasto ? m[c] : m[c]); tv[c] = d->hasto ? d->to[c] : (d->hasby ? fv[c] + d->by[c] : m[c]); val[c] = fv[c] + (tv[c] - fv[c]) * f; } }
+    return fin ? 2 : 1; }
+static void ca_clear_view(View *v) { v->ca_on = 0; v->ca_hasop = v->ca_haspos = 0; v->ca_rot = 0; v->ca_sx = v->ca_sy = 1; v->ca_tx = v->ca_ty = 0; }
+static void ca_tick(double now) {
+    if (!ncaact) return; for (int i = 0; i < nvt; i++) if (vtab[i]->ca_on) ca_clear_view(vtab[i]);
+    gptr notify[16][2]; int nn = 0;
+    for (int i = 0; i < ncaact; ) { CAact *a = &caact[i]; float val[2] = {0, 0}; int st = ca_eval(a, now, val);
+        if (st) { ca_apply(a->v, a->d.kp, val); a->v->ca_on = 1; if (a->v->ca_sx == 0 && a->v->ca_sy == 0) a->v->ca_sx = a->v->ca_sy = 1; }
+        if (st == 2) { if (a->top && a->dlg && !a->notified && nn < 16) { notify[nn][0] = a->dlg; notify[nn++][1] = a->obj; } a->notified = 1;
+            if (a->d.rem && !(a->d.fill)) { caact[i] = caact[--ncaact]; continue; } }
+        i++; }
+    for (int i = 0; i < nn; i++) { u32 args[2] = { notify[i][1], 1 }; if (guest_responds(notify[i][0], "animationDidStop:finished:")) send_guest(notify[i][0], "animationDidStop:finished:", 2, args); } }
+static void ca_remove(View *v, const char *key) { for (int i = 0; i < ncaact; ) if (caact[i].v == v && (!key || !strcmp(caact[i].key, key))) caact[i] = caact[--ncaact]; else i++; }
+static void ca_add(View *v, gptr obj, gptr keyobj) {
+    CAd *d = ca_of(obj); if (!d || (d->kind != 1 && d->kind != 2 && d->kind != 3)) return; char key[40]; static int uniq; if (keyobj && is_string(keyobj)) snprintf(key, sizeof key, "%s", scstr(keyobj)); else snprintf(key, sizeof key, "#%d", ++uniq);
+    ca_remove(v, key); double now = anim_now(); double gd = d->dur;
+    if (d->kind == 3) { if (gd <= 0) for (int k = 0; k < d->nk; k++) { CAd *c = ca_of(d->kid[k]); if (c && c->begin + c->dur > gd) gd = c->begin + c->dur; }
+        for (int k = 0; k < d->nk && ncaact < 4096; k++) { CAd *c = ca_of(d->kid[k]); if (!c || (c->kind != 1 && c->kind != 2)) continue; CAact *a = &caact[ncaact++]; memset(a, 0, sizeof *a); a->v = v; snprintf(a->key, sizeof a->key, "%s", key); a->d = *c;
+            a->t0 = now + d->begin; a->grp = 1; a->gdur = gd; a->grep = d->rep > 0 ? d->rep : 1; a->gautorev = d->autorev; a->top = (k == 0); a->obj = obj; a->dlg = d->dlg; a->d.rem = d->rem; a->d.fill = d->fill; } }
+    else if (ncaact < 4096) { CAact *a = &caact[ncaact++]; memset(a, 0, sizeof *a); a->v = v; snprintf(a->key, sizeof a->key, "%s", key); a->d = *d; a->t0 = now; a->top = 1; a->obj = obj; a->dlg = d->dlg; }
+    if (getenv("RA_CALOG")) fprintf(stderr, "[ca] add %s kind=%d acts=%d\n", key, d->kind, ncaact); }
+/* host messages for the CA classes; returns 1 when handled */
+static int ca_msg(const char *cls, gptr recv, const char *sel, int stret, int is_cls) {
+    if (strncmp(cls, "CA", 2)) return 0;
+    if (is_cls) {
+        if (!strcmp(cls, "CABasicAnimation") || !strcmp(cls, "CAKeyframeAnimation") || !strcmp(cls, "CAPropertyAnimation")) { gptr o = ca_new(cls, !strcmp(cls, "CAKeyframeAnimation") ? 2 : 1);
+            if (UIS("animationWithKeyPath:")) { snprintf(ca_of(o)->kp, 40, "%s", scstr(UA(2))); ret(o); return 1; } if (UIS("animation")) { ret(o); return 1; } return 0; }
+        if (!strcmp(cls, "CAAnimationGroup")) { if (UIS("animation")) { ret(ca_new(cls, 3)); return 1; } return 0; }
+        if (!strcmp(cls, "CATransition") || !strcmp(cls, "CAAnimation")) { if (UIS("animation")) { ret(ca_new(cls, 4)); return 1; } return 0; }
+        if (!strcmp(cls, "CAMediaTimingFunction") && UIS("functionWithName:")) { gptr o = new_obj(objc_class_object(cls)); const char *n = scstr(UA(2)); wr32(o + 8, strstr(n, "Linear") || strstr(n, "linear") ? 3 : strstr(n, "InEaseOut") || strstr(n, "InOut") ? 0 : strstr(n, "EaseIn") || strstr(n, "easeIn") ? 1 : strstr(n, "EaseOut") || strstr(n, "easeOut") ? 2 : 0); ret(o); return 1; }
+        return 0; }
+    if (!strcmp(cls, "CAEAGLLayer") || !strcmp(cls, "CALayer")) { View *v = view_of(rd32(recv + 4)); if (!v) return 0;
+        if (UIS("addAnimation:forKey:")) { ca_add(v, UA(2), UA(3)); ret(0); return 1; }
+        if (UIS("removeAllAnimations")) { ca_remove(v, NULL); ret(0); return 1; }
+        if (UIS("removeAnimationForKey:")) { ca_remove(v, scstr(UA(2))); ret(0); return 1; }
+        if (UIS("animationForKey:")) { gptr r = 0; for (int i = 0; i < ncaact; i++) if (caact[i].v == v && !strcmp(caact[i].key, scstr(UA(2)))) { r = caact[i].obj; break; } ret(r); return 1; }
+        if (UIS("setAnchorPoint:")) { float nx = uf(2, 0), ny = uf(3, 0); v->cx += (v->ax - nx) * v->bw; v->cy += (v->ay - ny) * v->bh; v->ax = nx; v->ay = ny; ret(0); return 1; }
+        if (UIS("anchorPoint") && stret) { ret_point(v->ax, v->ay); return 1; }
+        if (UIS("setOpacity:")) { v->alpha = uf(2, 0); ret(0); return 1; }
+        return 0; }
+    if (!strstr(cls, "Animation") && !strstr(cls, "Transition")) return 0;
+    CAd *d = ca_of(recv); if (!d) return 0; double dv; u64 db;
+    if (UIS("setDuration:") || UIS("setBeginTime:") || UIS("setRepeatDuration:") || UIS("setTimeOffset:")) { db = arg64(2); memcpy(&dv, &db, 8); if (UIS("setDuration:")) d->dur = dv; else if (UIS("setBeginTime:")) d->begin = dv > 1e5 ? 0 : dv; ret(0); return 1; }
+    if (UIS("setRepeatCount:")) { d->rep = uf(2, 0); ret(0); return 1; }
+    if (UIS("setAutoreverses:")) { d->autorev = UA(2) & 0xff; ret(0); return 1; }
+    if (UIS("setRemovedOnCompletion:")) { d->rem = UA(2) & 0xff; ret(0); return 1; }
+    if (UIS("setFillMode:")) { const char *m = scstr(UA(2)); d->fill = strstr(m, "orwards") || strstr(m, "both") || strstr(m, "Both"); ret(0); return 1; }
+    if (UIS("setFromValue:")) { d->hasfrom = ca_val(UA(2), d->from); ret(0); return 1; }
+    if (UIS("setToValue:")) { d->hasto = ca_val(UA(2), d->to); ret(0); return 1; }
+    if (UIS("setByValue:")) { d->hasby = ca_val(UA(2), d->by); ret(0); return 1; }
+    if (UIS("setKeyPath:")) { snprintf(d->kp, 40, "%s", scstr(UA(2))); ret(0); return 1; }
+    if (UIS("setValues:")) { gptr a = UA(2); d->nv = 0; for (u32 i = 0; a && i < rd32(a + 4) && d->nv < CA_MAXV; i++) if (ca_val(array_get(a, i), d->v[d->nv])) d->nv++; ret(0); return 1; }
+    if (UIS("setKeyTimes:")) { gptr a = UA(2); d->nt = 0; for (u32 i = 0; a && i < rd32(a + 4) && d->nt < CA_MAXV; i++) d->t[d->nt++] = (float)num_double(array_get(a, i)); ret(0); return 1; }
+    if (UIS("setTimingFunction:")) { gptr f = UA(2); if (f) d->curve = rd32(f + 8) & 3; ret(0); return 1; }
+    if (UIS("setAnimations:")) { gptr a = UA(2); d->nk = 0; for (u32 i = 0; a && i < rd32(a + 4) && d->nk < 8; i++) d->kid[d->nk++] = array_get(a, i); ret(0); return 1; }
+    if (UIS("setDelegate:")) { d->dlg = UA(2); ret(0); return 1; }
+    ret(0); return 1; }
 /* ---- NSNotificationCenter ---- */
 typedef struct { gptr obs; char sel[64]; char name[96]; gptr object; } NObs; static NObs nobs[512]; static int nnobs;
 static gptr cls_Notification;
@@ -173,7 +274,10 @@ void host_run_deferred(void) {
             /* offline: serve server-hosted assets (avatar parts, banners) from the app bundle by file name */
             const char *base = strrchr(us, '/'); base = base ? base + 1 : us; char q[256]; snprintf(q, sizeof q, "%s", base); char *qm = strchr(q, '?'); if (qm) *qm = 0;
             char path[1100] = ""; static const char *dirs[] = { "", "avatars/", "dress/", "images/", "maps/", NULL };
-            for (int k = 0; dirs[k] && q[0]; k++) { snprintf(path, sizeof path, "%s/%s%s", g_bundle_dir, dirs[k], q); if (access(path, R_OK) == 0) break; path[0] = 0; }
+            if (g_levels_dir && g_levels_dir[0]) { /* server-hosted dress items mirrored by tools/fetch_levels.sh: levels/items/<url path without host>; tried first (previews/x.png and x.png share a file name) */
+                const char *h = strstr(us, "://"); h = h ? strchr(h + 3, '/') : NULL; struct stat st;
+                if (h && h[1] && h[1] != '?') { snprintf(path, sizeof path, "%s/items%s", g_levels_dir, h); char *qq = strchr(path, '?'); if (qq) *qq = 0; if (stat(path, &st) || !S_ISREG(st.st_mode)) path[0] = 0; } }
+            for (int k = 0; !path[0] && dirs[k] && q[0]; k++) { snprintf(path, sizeof path, "%s/%s%s", g_bundle_dir, dirs[k], q); if (access(path, R_OK) == 0) break; path[0] = 0; }
             hle_log("[net] %s -> %s\n", us, path[0] ? path : "(no local file)");
             if (path[0] && del) { FILE *f = fopen(path, "rb"); if (f) { fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); unsigned char *buf = malloc(n + 1); size_t rn = fread(buf, 1, n, f); fclose(f); gptr dat = new_data(buf, (u32)rn); free(buf);
                 if (guest_responds(del, "connection:didReceiveData:")) { u32 a[2] = { d.a, dat }; send_guest(del, "connection:didReceiveData:", 2, a); }
@@ -188,6 +292,7 @@ static int g_orient = 4;     /* UIInterfaceOrientationLandscapeRight */
 
 static int uikit_msg(const char *cls, gptr recv, const char *sel, int stret, int is_cls) {
     gptr self = recv;
+    if (cls[0] == 'C' && cls[1] == 'A' && ca_msg(cls, recv, sel, stret, is_cls)) return 1;
     /* ---------------- class-side helpers ---------------- */
     if (is_cls) {
         if (!strcmp(cls, "UIColor")) {

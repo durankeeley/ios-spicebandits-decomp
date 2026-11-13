@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xml>
+<tiles>
+	<t>
+		<id>1</id>
+		<sx>0</sx>
+		<sy>0</sy>
+        <w>1024</w>
+        <h>1024</h>
+        <object>1</object>
+        <no_depth>1</no_depth>
+        <map_bgr>1</map_bgr>
+	</t>
+</tiles>
+</xml>

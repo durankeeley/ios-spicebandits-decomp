@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xml>
+<tiles>
+	<t>
+		<id>1</id>
+		<sx>0</sx>
+		<sy>0</sy>
+        <w>44</w>
+        <h>44</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+        <depth_pos>200</depth_pos>
+	</t>
+    <t>
+		<id>2</id>
+		<sx>45</sx>
+		<sy>0</sy>
+        <w>58</w>
+        <h>30</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+        <depth_pos>200</depth_pos>
+	</t>
+    <t>
+		<id>3</id>
+		<sx>0</sx>
+		<sy>44</sy>
+        <w>52</w>
+        <h>32</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+        <depth_pos>200</depth_pos>
+	</t>
+    <t>
+		<id>4</id>
+		<sx>53</sx>
+		<sy>31</sy>
+        <w>42</w>
+        <h>34</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+        <depth_pos>200</depth_pos>
+	</t>
+    <t>
+		<id>5</id>
+		<sx>0</sx>
+		<sy>78</sy>
+        <w>56</w>
+        <h>16</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+        <depth_pos>200</depth_pos>
+	</t>
+    <t>
+		<id>6</id>
+		<sx>54</sx>
+		<sy>66</sy>
+        <w>52</w>
+        <h>20</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+        <depth_pos>200</depth_pos>
+	</t>
+</tiles>
+</xml>

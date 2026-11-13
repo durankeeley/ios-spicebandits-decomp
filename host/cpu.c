@@ -163,10 +163,14 @@ static void on_digit_scan(uc_engine *u, uint64_t addr, uint32_t size, void *ud) 
     (void)u; (void)addr; (void)size; (void)ud;
     u32 s = reg(0), i = reg(2); if (s > 16 && s < ARENA_SIZE && i >= rd32(s - 12)) { u32 pc = 0x8c2f6 | 1; uc_reg_write(u, UC_ARM_REG_PC, &pc); }
 }
+/* -[CareerViewController openFittingRoom:] bails out with a "you must be online" UIAlertView when [[Session player] offline] is true (0x2d1ac);
+   the dress room works from the local profile, so take the online branch (0x2d286) */
+static void on_fitting_room(uc_engine *u, uint64_t addr, uint32_t size, void *ud) { (void)addr; (void)size; (void)ud; u32 pc = 0x2d286 | 1; uc_reg_write(u, UC_ARM_REG_PC, &pc); }
 static void add_debug_hooks(uc_engine *uc) {
     for (int i = 0; i < 16; i++) if (!engines_dbg[i]) { engines_dbg[i] = uc; break; }
     arm_extra_watch(uc);
     { uc_hook hd; uc_hook_add(uc, &hd, UC_HOOK_CODE, on_digit_scan, NULL, 0x8c2e0, 0x8c2e0); }
+    { uc_hook hf; uc_hook_add(uc, &hf, UC_HOOK_CODE, on_fitting_room, NULL, 0x2d1ac, 0x2d1ac); }
     { uc_hook hc; uc_hook_add(uc, &hc, UC_HOOK_CODE, on_engine_cap, NULL, 0xf643c, 0xf643c); }
     const char *wt = getenv("RA_WATCH");            /* comma-separated hex addrs: log writes */
     while (wt && *wt) { char *e; unsigned long a = strtoul(wt, &e, 16); if (e == wt) break; uc_hook hw; uc_hook_add(uc, &hw, UC_HOOK_MEM_WRITE, on_watch, NULL, a, a + 3); wt = *e ? e + 1 : e; }

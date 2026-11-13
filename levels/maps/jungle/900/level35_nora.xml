@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xml>
+<tiles>
+	<t>
+		<id>1</id>
+		<sx>0</sx>
+		<sy>0</sy>
+        <w>256</w>
+        <h>256</h>
+        <object>1</object>
+        <depth_pos>300</depth_pos>
+        <white_alpha>1</white_alpha>
+	</t>
+</tiles>
+</xml>

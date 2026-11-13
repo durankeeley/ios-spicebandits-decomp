@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xml>
+<tiles>
+	<t>
+		<id>1</id>
+		<sx>0</sx>
+		<sy>0</sy>
+        <w>86</w>
+        <h>246</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+        <!-- <depth_pos>165</depth_pos> -->
+	</t>
+    <t>
+		<id>2</id>
+		<sx>117</sx>
+		<sy>0</sy>
+        <w>226</w>
+        <h>176</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+    </t>
+</tiles>
+</xml>

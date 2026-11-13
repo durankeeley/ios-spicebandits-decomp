@@ -3,11 +3,8 @@
 ## Unimplemented imports (0)
 
 
-## Unhandled ObjC selectors (9) - the host answers nil
+## Unhandled ObjC selectors (6) - the host answers nil
 
-- `-[CAAnimationGroup animation]`
-- `-[CAKeyframeAnimation animationWithKeyPath:]`
-- `-[CAMediaTimingFunction functionWithName:]`
 - `-[EAGLContext sharegroup]`
 - `-[GKLocalPlayer localPlayer]`
 - `-[NSNull null]`

@@ -321,6 +321,8 @@ static int host_msg(const char *cls, gptr recv, const char *sel, int stret, int 
     if (!strcmp(cls, "NSFileManager") && IS("contentsAtPath:")) { ret(0); return 0; }
     if (!strcmp(cls, "NSValue") && IS("valueWithPointer:")) { gptr o = new_obj(objc_class_object("NSValue")); wr32(o + 8, A(2)); ret(o); return 0; }
     if (!strcmp(cls, "NSValue") && IS("pointerValue")) { ret(rd32(recv + 8)); return 0; }
+    if (!strcmp(cls, "NSValue") && (IS("valueWithCGPoint:") || IS("valueWithCGSize:"))) { gptr o = new_obj(objc_class_object("NSValue")); wr32(o + 4, 0x50545331u); wr32(o + 8, A(2)); wr32(o + 12, A(3)); ret(o); return 0; }   /* two floats; read by ca_val (uikit2.inc) */
+    if (!strcmp(cls, "NSValue") && (IS("CGPointValue") || IS("CGSizeValue")) && rd32(recv + 4) == 0x50545331u) { gptr p = arg(0); wr32(p, rd32(recv + 8)); wr32(p + 4, rd32(recv + 12)); return 0; }
     if (!strcmp(cls, "NSKeyedUnarchiver")) { ret(0); return 0; }
     if (!strcmp(cls, "NSMutableArray") && IS("containsObject:")) { for (u32 i = 0; i < rd32(recv + 4); i++) if (array_get(recv, i) == A(2) || (is_string(array_get(recv, i)) && !strcmp(scstr(array_get(recv, i)), scstr(A(2))))) { ret(1); return 0; } ret(0); return 0; }
     if (!strcmp(cls, "NSMutableArray") && IS("indexOfObject:")) { for (u32 i = 0; i < rd32(recv + 4); i++) if (array_get(recv, i) == A(2)) { ret(i); return 0; } ret(0x7fffffff); return 0; }

@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xml> 
+<particles>
+    <p>
+        <name>level23_Smoke</name>
+        <filename>level23_particle</filename>
+        <max_particles>100</max_particles>
+        <num_release>1</num_release>
+        <release_interval>0.3</release_interval>
+        <life_cycle>5.0</life_cycle>
+        <color>1.0 1.0 1.0 1.0</color>
+        <velocity>0 -120</velocity>
+		<gravity>0 -9</gravity>
+        <wind>-50 0</wind>
+        <size>1.2</size>
+		<scale>1</scale>
+        <use_real_size>1</use_real_size>
+        <fade_in_time>1.0</fade_in_time>
+        <velocity_var>30</velocity_var>
+		<rotational>1</rotational>
+        <rot_dir_rand>40</rot_dir_rand>
+		<rot_speed>0.4</rot_speed>
+        <blend_delay>0.01</blend_delay>
+        <real_alpha>1</real_alpha>
+    </p>
+    <p>
+        <name>level23_LargeSmoke</name>
+        <filename>level23_particle</filename>
+        <max_particles>100</max_particles>
+        <num_release>1</num_release>
+        <release_interval>0.3</release_interval>
+        <life_cycle>5.0</life_cycle>
+        <color>1.0 1.0 1.0 1.0</color>
+        <velocity>0 -120</velocity>
+		<gravity>0 -9</gravity>
+        <wind>-50 0</wind>
+        <size>1.7</size>
+		<scale>1</scale>
+        <use_real_size>1</use_real_size>
+        <fade_in_time>1.0</fade_in_time>
+        <velocity_var>30</velocity_var>
+		<rotational>1</rotational>
+        <rot_dir_rand>40</rot_dir_rand>
+		<rot_speed>0.4</rot_speed>
+        <blend_delay>0.01</blend_delay>
+        <real_alpha>1</real_alpha>
+    </p>
+    <p>
+        <name>level23_LargeSmokeVar2</name>
+        <filename>level23_particle</filename>
+        <max_particles>100</max_particles>
+        <num_release>1</num_release>
+        <release_interval>0.3</release_interval>
+        <life_cycle>5.0</life_cycle>
+        <color>0.9 0.95 0.95 1.0</color>
+        <velocity>-190 60</velocity>
+		<gravity>0 9</gravity>
+        <wind>-10 0</wind>
+        <size>1.8</size>
+		<scale>1</scale>
+        <use_real_size>1</use_real_size>
+        <fade_in_time>1.0</fade_in_time>
+        <velocity_var>25</velocity_var>
+		<rotational>1</rotational>
+        <rot_dir_rand>40</rot_dir_rand>
+		<rot_speed>0.4</rot_speed>
+        <blend_delay>0.01</blend_delay>
+        <real_alpha>1</real_alpha>
+    </p>
+    <p>
+        <name>level23_LargeSmokeVar3</name>
+        <filename>level23_particle</filename>
+        <max_particles>100</max_particles>
+        <num_release>1</num_release>
+        <release_interval>0.3</release_interval>
+        <life_cycle>2.0</life_cycle>
+        <color>0.9 0.95 0.95 1.0</color>
+        <velocity>-120 -100</velocity>
+		<gravity>0 9</gravity>
+        <wind>-10 0</wind>
+        <size>1.8</size>
+		<scale>1</scale>
+        <use_real_size>1</use_real_size>
+        <fade_in_time>1.0</fade_in_time>
+        <velocity_var>25</velocity_var>
+		<rotational>1</rotational>
+        <rot_dir_rand>40</rot_dir_rand>
+		<rot_speed>0.4</rot_speed>
+        <blend_delay>0.01</blend_delay>
+        <real_alpha>1</real_alpha>
+    </p>
+    <p>
+        <name>level23_SmokeVar2</name>
+        <filename>level23_particle</filename>
+        <max_particles>100</max_particles>
+        <num_release>1</num_release>
+        <release_interval>0.3</release_interval>
+        <life_cycle>2.0</life_cycle>
+        <color>1.0 1.0 1.0 1.0</color>
+        <velocity>50 -120</velocity>
+		<gravity>0 -9</gravity>
+        <wind>70 0</wind>
+        <size>1.2</size>
+		<scale>1</scale>
+        <use_real_size>1</use_real_size>
+        <fade_in_time>1.0</fade_in_time>
+        <velocity_var>30</velocity_var>
+		<rotational>1</rotational>
+        <rot_dir_rand>40</rot_dir_rand>
+		<rot_speed>0.4</rot_speed>
+        <blend_delay>0.01</blend_delay>
+        <real_alpha>1</real_alpha>
+    </p>
+    <p>
+        <name>level23_SmokeVar3</name>
+        <filename>level23_particle</filename>
+        <max_particles>100</max_particles>
+        <num_release>1</num_release>
+        <release_interval>0.3</release_interval>
+        <life_cycle>2.0</life_cycle>
+        <color>1.0 1.0 1.0 1.0</color>
+        <velocity>0 -120</velocity>
+		<gravity>0 -9</gravity>
+        <wind>0 0</wind>
+        <size>1.2</size>
+		<scale>1</scale>
+        <use_real_size>1</use_real_size>
+        <fade_in_time>1.0</fade_in_time>
+        <velocity_var>40</velocity_var>
+		<rotational>1</rotational>
+        <rot_dir_rand>40</rot_dir_rand>
+		<rot_speed>0.4</rot_speed>
+        <blend_delay>0.01</blend_delay>
+        <real_alpha>1</real_alpha>
+    </p>
+</particles>
+</xml>

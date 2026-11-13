@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xml>
+<tiles>
+	<t>
+		<id>1</id>
+		<sx>0</sx>
+		<sy>0</sy>
+        <w>70</w>
+        <h>241</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+	</t>
+    <t>
+		<id>2</id>
+		<sx>112</sx>
+		<sy>0</sy>
+        <w>144</w>
+        <h>247</h>
+        <white_alpha>1</white_alpha>
+        <object>1</object>
+    </t>
+</tiles>
+</xml>

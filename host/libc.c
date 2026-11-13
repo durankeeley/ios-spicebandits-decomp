@@ -12,7 +12,7 @@
 #include <dirent.h>
 #include <ctype.h>
 
-const char *g_bundle_dir = "."; const char *g_docs_dir = "./save";
+const char *g_bundle_dir = "."; const char *g_docs_dir = "./save"; const char *g_levels_dir = "";
 static gptr g_errno_addr;
 #define SETERR() wr32(g_errno_addr, errno)
 
