@@ -245,7 +245,7 @@ static void draw_view(View *v, Mat parent, float alpha) {
     Mat T = {1, 0, 0, 1, vcx, vcy}, B = {1, 0, 0, 1, -v->bw / 2 - 0, -v->bh / 2 - 0};
     Mat m = mat_mul(parent, mat_mul(T, mat_mul(X, B)));      /* parent * translate(center) * transform * translate(-size/2) */
     int scissor = 0;
-    if (v->clips && v->ta == 1 && v->td == 1 && v->tb == 0 && v->tc_ == 0) { float sx0, sy0, sx1, sy1; mat_pt(m, 0, 0, &sx0, &sy0); mat_pt(m, v->bw, v->bh, &sx1, &sy1);
+    if ((v->clips || v->kind == K_SCROLL) && v->ta == 1 && v->td == 1 && v->tb == 0 && v->tc_ == 0) { float sx0, sy0, sx1, sy1; mat_pt(m, 0, 0, &sx0, &sy0); mat_pt(m, v->bw, v->bh, &sx1, &sy1);
         glEnable(GL_SCISSOR_TEST); glScissor((int)fminf(sx0, sx1), (int)(g_scr_h - fmaxf(sy0, sy1)), (int)fabsf(sx1 - sx0) + 1, (int)fabsf(sy1 - sy0) + 1); scissor = 1; }
     glDisable(GL_TEXTURE_2D);
     if (v->hasbg && v->bg[3] > 0.003f) { glColor4f(v->bg[0], v->bg[1], v->bg[2], v->bg[3] * a); quad(m, 0, 0, v->bw, v->bh, 0, 0, 1, 1); }

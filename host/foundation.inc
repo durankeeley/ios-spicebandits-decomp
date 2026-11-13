@@ -376,9 +376,7 @@ static int found_msg(const char *cls, gptr recv, const char *sel, int stret, int
         gptr blk = UA(2); gptr arr = FS("sortUsingComparator:") ? recv : arr_copy(recv, objc_class_object("NSMutableArray")); u32 n = rd32(arr + 4);
         for (u32 i = 1; i < n; i++) { gptr x = array_get(arr, i); u32 j = i; while (j > 0) { u32 a[3] = { blk, array_get(arr, j - 1), x }; if ((s32)call_guest(rd32(blk + 12), 3, a) <= 0) break; wr32(rd32(arr + 8) + 4 * j, array_get(arr, j - 1)); j--; } wr32(rd32(arr + 8) + 4 * j, x); }
         ret(FS("sortUsingComparator:") ? 0 : arr); return 1; }
-    if (!strcmp(cls, "UIImage") && is_cls && FS("imageWithData:")) { gptr d = UA(2); if (!d || nimg >= 4096) { ret(0); return 1; } int w, h; uint8_t *px = NULL;
-        { FILE *f = tmpfile(); if (f) { fwrite(H(rd32(d + 4)), 1, rd32(d + 8), f); fflush(f); char pp[64]; snprintf(pp, sizeof pp, "/proc/self/fd/%d", fileno(f)); px = load_rgba(pp, &w, &h); fclose(f); } }
-        if (!px) { ret(0); return 1; } snprintf(images[nimg].name, 199, "#data%d", nimg); images[nimg].rgba = px; images[nimg].w = w; images[nimg].h = h; ret(new_image(nimg++)); return 1; }
+    if (!strcmp(cls, "UIImage") && is_cls && FS("imageWithData:")) { ret(image_from_data(UA(2))); return 1; }
     if (!strcmp(cls, "NSAutoreleasePool") || !strcmp(cls, "NSAssertionHandler")) { ret(!strcmp(cls, "NSAutoreleasePool") && (FS("init") || FS("alloc")) ? recv : 0); return 1; }
     if (!strcmp(cls, "NSInvocation") || !strcmp(cls, "NSMethodSignature")) { ret(0); return 1; }
     return 0;
@@ -398,3 +396,9 @@ void sk_deliver(gptr req) {
     if (guest_responds(del, "requestDidFinish:")) { u32 a[1] = { req }; send_guest(del, "requestDidFinish:", 1, a); }
 }
 
+
+/* UIImage from PNG/JPEG bytes in an NSData (imageWithData: / initWithData:) */
+static gptr image_from_data(gptr d) {
+    if (!d || nimg >= 4096) return 0; int w, h; uint8_t *px = NULL;
+    { FILE *f = tmpfile(); if (f) { fwrite(H(rd32(d + 4)), 1, rd32(d + 8), f); fflush(f); char pp[64]; snprintf(pp, sizeof pp, "/proc/self/fd/%d", fileno(f)); px = load_rgba(pp, &w, &h); fclose(f); } }
+    if (!px) return 0; snprintf(images[nimg].name, 199, "#data%d", nimg); images[nimg].rgba = px; images[nimg].w = w; images[nimg].h = h; return new_image(nimg++); }

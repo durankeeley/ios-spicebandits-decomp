@@ -74,7 +74,7 @@ static int anim_block(gptr blk, double dur, double delay, int opts, gptr comp) {
 /* ---- Core Animation: CABasicAnimation / CAKeyframeAnimation / CAAnimationGroup added to a UIView's layer ----
    The animation objects are host objects (slot index at +8). addAnimation:forKey: flattens them into "active leaves" that are evaluated every
    frame by ca_tick() into a presentation overlay on the View (ca_* fields, applied in draw_view); the model values are never touched, as in CA. */
-static int is_number(gptr o); static double num_double(gptr o);
+static int is_number(gptr o); static double num_double(gptr o); static gptr image_from_data(gptr d);
 #define CA_MAXV 24
 typedef struct { int kind; char kp[40]; double dur, begin, rep; int autorev, rem, fill, curve, hasfrom, hasto, hasby, nv, nt, nk; float from[2], to[2], by[2], v[CA_MAXV][2], t[CA_MAXV]; gptr kid[8], dlg; } CAd;
 static CAd cad[16384]; static int ncad;
@@ -336,7 +336,7 @@ static int uikit_msg(const char *cls, gptr recv, const char *sel, int stret, int
         ImageRec *im = img_of(recv);
         if (UIS("size")) { ret_size(im ? im->w : 0, im ? im->h : 0); return 1; }
         if (UIS("scale")) { ret(w_of(1.f)); return 1; } if (UIS("CGImage") || UIS("stretchableImageWithLeftCapWidth:topCapHeight:") || UIS("resizableImageWithCapInsets:")) { ret(recv); return 1; }
-        if (UIS("initWithContentsOfFile:") || UIS("initWithData:")) { ret(UIS("initWithData:") ? 0 : image_from_path(host_path(scstr(UA(2))))); return 1; }
+        if (UIS("initWithContentsOfFile:") || UIS("initWithData:")) { ret(UIS("initWithData:") ? image_from_data(UA(2)) : image_from_path(host_path(scstr(UA(2))))); return 1; }
         if (UIS("leftCapWidth") || UIS("topCapHeight")) { ret(0); return 1; }
         return 0;
     }
