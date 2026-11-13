@@ -3,14 +3,13 @@
 ## Unimplemented imports (0)
 
 
-## Unhandled ObjC selectors (6) - the host answers nil
+## Unhandled ObjC selectors (5) - the host answers nil
 
 - `-[EAGLContext sharegroup]`
 - `-[GKLocalPlayer localPlayer]`
 - `-[NSNull null]`
 - `-[NSString stringByAddingPercentEscapesUsingEncoding:]`
 - `-[SKPaymentQueue defaultQueue]`
-- `-[UITextField resignFirstResponder]`
 
 ## Faults
 

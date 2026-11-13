@@ -8,12 +8,15 @@ static gptr s_empty;
 static gptr empty_rep(void) { if (!s_empty) s_empty = resolve_symbol("__ZNSs4_Rep20_S_empty_rep_storageE") + 12; return s_empty; }   /* chars of the shared empty rep */
 static u32 slen(gptr p) { return rd32(p - 12); }
 static gptr rep_new(u32 len, u32 cap) { if (cap < len) cap = len; gptr r = gm_malloc(12 + cap + 1); wr32(r, len); wr32(r + 4, cap); wr32(r + 8, 0); *(char *)H(r + 12 + len) = 0; return r + 12; }
-static void rep_release(gptr p) { if (!p || p == empty_rep()) return; s32 rc = (s32)rd32(p - 4); if (rc <= 0) gm_free(p - 12); else wr32(p - 4, rc - 1); }
+/* A std::string living in uninitialised guest memory (stack slot never constructed, stale data) holds stray bytes as its rep pointer; treat anything outside the guest arena as the empty string instead of crashing the host */
+static int rep_ok(gptr p) { return p > 0x1000 && p < ARENA_SIZE - 16; }
+static gptr cur_rep(gptr obj) { gptr p = rd32(obj); if (!rep_ok(p)) { p = empty_rep(); wr32(obj, p); } return p; }
+static void rep_release(gptr p) { if (!p || p == empty_rep() || !rep_ok(p)) return; s32 rc = (s32)rd32(p - 4); if (rc <= 0) gm_free(p - 12); else wr32(p - 4, rc - 1); }
 static gptr rep_from(const char *s, u32 n) { if (!n) return empty_rep(); gptr p = rep_new(n, n); memcpy(H(p), s, n); return p; }
 static void set_str(gptr obj, gptr p) { wr32(obj, p); }
 /* make *obj uniquely owned with capacity >= want, keeping content */
 static gptr unshare(gptr obj, u32 want) {
-    gptr p = rd32(obj); u32 len = slen(p), cap = rd32(p - 8); s32 rc = (s32)rd32(p - 4);
+    gptr p = cur_rep(obj); u32 len = slen(p), cap = rd32(p - 8); s32 rc = (s32)rd32(p - 4);
     if (p != empty_rep() && rc <= 0 && cap >= want) return p;
     gptr q = rep_new(len, want > len ? want : len); memcpy(H(q), H(p), len); rep_release(p); wr32(obj, q); return q;
 }
@@ -29,12 +32,12 @@ static void h_terminate(void) { fprintf(stderr, "[guest] std::terminate\n"); abo
 static void h_str_ctor_cstr(void) { const char *s = gstr(arg(1)); set_str(arg(0), rep_from(s, strlen(s))); }
 static void h_str_ctor_copy(void) { gptr src = rd32(arg(1)); if (src != empty_rep()) { s32 rc = (s32)rd32(src - 4); if (rc < 0) { set_str(arg(0), rep_from((char *)H(src), slen(src))); return; } wr32(src - 4, rc + 1); } set_str(arg(0), src); }
 static void h_str_dtor(void) { rep_release(rd32(arg(0))); }
-static void assign_bytes(gptr obj, const char *s, u32 n) { gptr p = rd32(obj); if (!n) { rep_release(p); set_str(obj, empty_rep()); return; }
+static void assign_bytes(gptr obj, const char *s, u32 n) { gptr p = cur_rep(obj); if (!n) { rep_release(p); set_str(obj, empty_rep()); return; }
     char *tmp = malloc(n); memcpy(tmp, s, n); rep_release(p); set_str(obj, rep_from(tmp, n)); free(tmp); }
 static void h_str_assign_cn(void) { assign_bytes(arg(0), (const char *)H(arg(1)), arg(2)); ret(arg(0)); }
 static void h_str_assign_str(void) { gptr d = arg(0), src = rd32(arg(1)); if (rd32(d) == src) { ret(d); return; } rep_release(rd32(d));
     if (src != empty_rep()) { s32 rc = (s32)rd32(src - 4); if (rc < 0) { set_str(d, rep_from((char *)H(src), slen(src))); ret(d); return; } wr32(src - 4, rc + 1); } set_str(d, src); ret(d); }
-static void append_bytes(gptr obj, const char *s, u32 n) { if (!n) return; gptr p = rd32(obj); u32 len = slen(p); char *tmp = malloc(n); memcpy(tmp, s, n); p = unshare(obj, len + n + (len + n) / 2 + 8); memcpy(H(p + len), tmp, n); wr32(p - 12, len + n); *(char *)H(p + len + n) = 0; free(tmp); }
+static void append_bytes(gptr obj, const char *s, u32 n) { if (!n) return; gptr p = cur_rep(obj); u32 len = slen(p); char *tmp = malloc(n); memcpy(tmp, s, n); p = unshare(obj, len + n + (len + n) / 2 + 8); memcpy(H(p + len), tmp, n); wr32(p - 12, len + n); *(char *)H(p + len + n) = 0; free(tmp); }
 static void h_str_append_cn(void) { append_bytes(arg(0), (const char *)H(arg(1)), arg(2)); ret(arg(0)); }
 static void h_str_append_str(void) { gptr s = rd32(arg(1)); append_bytes(arg(0), (const char *)H(s), slen(s)); ret(arg(0)); }
 static void h_str_reserve(void) { unshare(arg(0), arg(1)); }
